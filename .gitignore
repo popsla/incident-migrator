@@ -1,0 +1,12 @@
+node_modules/
+dist/
+*.log
+.env
+.DS_Store
+coverage/
+*.tsbuildinfo
+state.json
+import-report.json
+exports/
+*.jsonl
+manifest.json
