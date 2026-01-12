@@ -144,7 +144,7 @@ export function mapTimestamps(
   return { value: mapped, warnings };
 }
 
-// Better timestamp mapping with source context
+// Better timestamp mapping with source context or from export data
 export function mapTimestampsWithContext(
   sourceTimestamps: IncidentTimestampValue[] | undefined,
   sourceTimestampDefs: Map<string, IncidentTimestamp>,
@@ -158,7 +158,8 @@ export function mapTimestampsWithContext(
   const warnings: string[] = [];
 
   for (const sourceTs of sourceTimestamps) {
-    const sourceDef = sourceTimestampDefs.get(sourceTs.incident_timestamp_id);
+    // Try to get source definition from export data first, then fall back to source context
+    const sourceDef = sourceTs.incident_timestamp || sourceTimestampDefs.get(sourceTs.incident_timestamp_id);
     if (!sourceDef) {
       warnings.push(`Source timestamp ${sourceTs.incident_timestamp_id} definition not found`);
       continue;
@@ -236,7 +237,8 @@ export function mapRoleAssignments(
   const warnings: string[] = [];
 
   for (const assignment of sourceAssignments) {
-    const sourceRole = sourceRoles.get(assignment.incident_role_id);
+    // Try to get source role from export data first, then fall back to source context
+    const sourceRole = assignment.role || sourceRoles.get(assignment.incident_role_id);
     if (!sourceRole) {
       warnings.push(`Source role ${assignment.incident_role_id} definition not found`);
       continue;
@@ -292,7 +294,8 @@ export function mapCustomFieldValues(
   const warnings: string[] = [];
 
   for (const sourceValue of sourceValues) {
-    const sourceField = sourceFields.get(sourceValue.custom_field_id);
+    // Try to get source field from export data first, then fall back to source context
+    const sourceField = sourceValue.custom_field || sourceFields.get(sourceValue.custom_field_id);
     if (!sourceField) {
       warnings.push(`Source custom field ${sourceValue.custom_field_id} definition not found`);
       continue;
@@ -318,23 +321,25 @@ export function mapCustomFieldValues(
       targetField.field_type === 'multi_select'
     ) {
       const mappedValue = mapSelectFieldValue(
-        sourceValue.value,
+        sourceValue.values,
         sourceField,
         targetField
       );
-      if (mappedValue.value !== undefined) {
+      if (mappedValue.value !== undefined && mappedValue.value.length > 0) {
         mapped.push({
           custom_field_id: targetField.id,
-          value: mappedValue.value,
+          values: mappedValue.value,
         });
       }
       warnings.push(...mappedValue.warnings);
     } else {
-      // text, link, numeric - copy as-is
-      mapped.push({
-        custom_field_id: targetField.id,
-        value: sourceValue.value,
-      });
+      // text, link, numeric - only include if there are actual values
+      if (sourceValue.values && sourceValue.values.length > 0) {
+        mapped.push({
+          custom_field_id: targetField.id,
+          values: sourceValue.values,
+        });
+      }
     }
   }
 
@@ -342,66 +347,44 @@ export function mapCustomFieldValues(
 }
 
 function mapSelectFieldValue(
-  sourceValue: string | string[] | undefined,
+  sourceValues: any[] | undefined,
   sourceField: CustomField,
   targetField: CustomField
-): MappingResult<string | string[]> {
-  if (sourceValue === undefined) {
-    return { warnings: [] };
+): MappingResult<any[]> {
+  if (!sourceValues || sourceValues.length === 0) {
+    return { value: [], warnings: [] };
   }
 
-  const sourceOptions = sourceField.options || [];
   const targetOptions = targetField.options || [];
+  const mapped: any[] = [];
+  const warnings: string[] = [];
 
-  if (Array.isArray(sourceValue)) {
-    // multi_select
-    const mapped: string[] = [];
-    const warnings: string[] = [];
-
-    for (const optionId of sourceValue) {
-      const sourceOption = sourceOptions.find((o) => o.id === optionId);
-      if (!sourceOption) {
-        warnings.push(
-          `Source option ${optionId} in field "${sourceField.name}" not found`
-        );
-        continue;
-      }
-
-      const targetOption = targetOptions.find(
-        (o) => o.value.toLowerCase() === sourceOption.value.toLowerCase()
-      );
-      if (targetOption) {
-        mapped.push(targetOption.id);
-      } else {
-        warnings.push(
-          `Option "${sourceOption.value}" in field "${sourceField.name}" not found in target`
-        );
-      }
+  for (const valueEntry of sourceValues) {
+    // Extract the name from value_catalog_entry
+    const sourceName = valueEntry.value_catalog_entry?.name;
+    if (!sourceName) {
+      warnings.push(`Value entry missing name in field "${sourceField.name}"`);
+      continue;
     }
 
-    return { value: mapped, warnings };
-  } else {
-    // single_select
-    const sourceOption = sourceOptions.find((o) => o.id === sourceValue);
-    if (!sourceOption) {
-      return {
-        warnings: [
-          `Source option ${sourceValue} in field "${sourceField.name}" not found`,
-        ],
-      };
-    }
-
+    // Find matching target option by name
     const targetOption = targetOptions.find(
-      (o) => o.value.toLowerCase() === sourceOption.value.toLowerCase()
+      (o) => o.value.toLowerCase() === sourceName.toLowerCase()
     );
-    if (targetOption) {
-      return { value: targetOption.id, warnings: [] };
-    }
 
-    return {
-      warnings: [
-        `Option "${sourceOption.value}" in field "${sourceField.name}" not found in target`,
-      ],
-    };
+    if (targetOption) {
+      // Build the value entry in the format the API expects
+      mapped.push({
+        value_link: {
+          catalog_entry_id: targetOption.id
+        }
+      });
+    } else {
+      warnings.push(
+        `Option "${sourceName}" in field "${sourceField.name}" not found in target`
+      );
+    }
   }
+
+  return { value: mapped, warnings };
 }
