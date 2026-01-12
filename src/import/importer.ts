@@ -59,12 +59,19 @@ export class Importer {
     }
 
     // Load or initialize state
+    // Always load existing state to prevent duplicates, regardless of resume flag
     let state: ImportState = { mapping: {}, lastImportedAt: new Date().toISOString() };
-    if (resume && (await fileExists(stateFile))) {
+    if (await fileExists(stateFile)) {
       const existingState = await readState(stateFile);
       if (existingState) {
         state = existingState;
-        logger.info(`Resuming from previous import (${Object.keys(state.mapping).length} already imported)`);
+        const importedCount = Object.keys(state.mapping).length;
+        if (importedCount > 0) {
+          logger.info(`Found ${importedCount} previously imported incident(s), will skip duplicates`);
+        }
+        if (resume) {
+          logger.info(`Resuming from previous import`);
+        }
       }
     }
 
@@ -224,35 +231,29 @@ export class Importer {
       const typeResult = mapIncidentType(incident.incident_type, targetContext.types);
       result.warnings.push(...typeResult.warnings);
 
-      // Map timestamps
-      const timestampResult = this.sourceContext
-        ? mapTimestampsWithContext(
-            incident.incident_timestamp_values,
-            this.sourceContext.timestamps,
-            targetContext.timestamps
-          )
-        : { value: [], warnings: ['Source context not available for timestamp mapping'] };
+      // Map timestamps - works with names from export data or source context
+      const timestampResult = mapTimestampsWithContext(
+        incident.incident_timestamp_values,
+        this.sourceContext?.timestamps || new Map(),
+        targetContext.timestamps
+      );
       result.warnings.push(...timestampResult.warnings);
 
-      // Map role assignments
-      const roleResult = this.sourceContext
-        ? mapRoleAssignments(
-            incident.incident_role_assignments,
-            this.sourceContext.roles,
-            targetContext.roles,
-            targetContext.users
-          )
-        : { value: [], warnings: ['Source context not available for role mapping'] };
+      // Map role assignments - works with names from export data or source context
+      const roleResult = mapRoleAssignments(
+        incident.incident_role_assignments,
+        this.sourceContext?.roles || new Map(),
+        targetContext.roles,
+        targetContext.users
+      );
       result.warnings.push(...roleResult.warnings);
 
-      // Map custom fields
-      const customFieldResult = this.sourceContext
-        ? mapCustomFieldValues(
-            incident.custom_field_values,
-            this.sourceContext.customFields,
-            targetContext.customFields
-          )
-        : { value: [], warnings: ['Source context not available for custom field mapping'] };
+      // Map custom fields - works with names from export data or source context
+      const customFieldResult = mapCustomFieldValues(
+        incident.custom_field_values,
+        this.sourceContext?.customFields || new Map(),
+        targetContext.customFields
+      );
       result.warnings.push(...customFieldResult.warnings);
 
       // Extract numeric external_id from reference (e.g., "INC-48" -> 48)
