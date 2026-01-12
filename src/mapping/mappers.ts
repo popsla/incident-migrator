@@ -42,9 +42,7 @@ export function mapSeverity(
 
   return {
     value: closest.id,
-    warnings: [
-      `Severity "${sourceSeverity.name}" not found, mapped to "${closest.name}" by rank`,
-    ],
+    warnings: [`Severity "${sourceSeverity.name}" not found, mapped to "${closest.name}" by rank`],
   };
 }
 
@@ -159,7 +157,8 @@ export function mapTimestampsWithContext(
 
   for (const sourceTs of sourceTimestamps) {
     // Try to get source definition from export data first, then fall back to source context
-    const sourceDef = sourceTs.incident_timestamp || sourceTimestampDefs.get(sourceTs.incident_timestamp_id);
+    const sourceDef =
+      sourceTs.incident_timestamp || sourceTimestampDefs.get(sourceTs.incident_timestamp_id);
     if (!sourceDef) {
       warnings.push(`Source timestamp ${sourceTs.incident_timestamp_id} definition not found`);
       continue;
@@ -316,15 +315,8 @@ export function mapCustomFieldValues(
     }
 
     // Map the value based on field type
-    if (
-      targetField.field_type === 'single_select' ||
-      targetField.field_type === 'multi_select'
-    ) {
-      const mappedValue = mapSelectFieldValue(
-        sourceValue.values,
-        sourceField,
-        targetField
-      );
+    if (targetField.field_type === 'single_select' || targetField.field_type === 'multi_select') {
+      const mappedValue = mapSelectFieldValue(sourceValue.values, sourceField, targetField);
       if (mappedValue.value !== undefined && mappedValue.value.length > 0) {
         mapped.push({
           custom_field_id: targetField.id,
@@ -376,13 +368,11 @@ function mapSelectFieldValue(
       // Build the value entry in the format the API expects
       mapped.push({
         value_link: {
-          catalog_entry_id: targetOption.id
-        }
+          catalog_entry_id: targetOption.id,
+        },
       });
     } else {
-      warnings.push(
-        `Option "${sourceName}" in field "${sourceField.name}" not found in target`
-      );
+      warnings.push(`Option "${sourceName}" in field "${sourceField.name}" not found in target`);
     }
   }
 

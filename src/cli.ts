@@ -17,9 +17,7 @@ program
 
 // Helper to get config from environment
 function getConfig(isSource: boolean): Config {
-  const apiKey = isSource
-    ? process.env.SOURCE_API_KEY
-    : process.env.TARGET_API_KEY;
+  const apiKey = isSource ? process.env.SOURCE_API_KEY : process.env.TARGET_API_KEY;
   const baseUrl = isSource
     ? process.env.SOURCE_BASE_URL || 'https://api.incident.io'
     : process.env.TARGET_BASE_URL || 'https://api.incident.io';

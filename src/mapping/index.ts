@@ -2,9 +2,7 @@ import { IncidentIoApiClient, paginateAll } from '../api/client.js';
 import { logger } from '../util/logging.js';
 import type { MappingContext } from '../types.js';
 
-export async function buildMappingContext(
-  client: IncidentIoApiClient
-): Promise<MappingContext> {
+export async function buildMappingContext(client: IncidentIoApiClient): Promise<MappingContext> {
   logger.info('Building mapping context...');
 
   // Fetch all configuration data

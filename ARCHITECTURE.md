@@ -66,17 +66,18 @@ This tool exports incidents from a SOURCE incident.io environment and imports th
 
 #### Mapping Strategies
 
-| Entity | Primary | Fallback 1 | Fallback 2 |
-|--------|---------|------------|------------|
-| Severity | Name (case-insensitive) | Closest rank | - |
-| Status | Name + category | Name only | Category only |
-| Type | Name (case-insensitive) | - | - |
-| Timestamp | Name (requires source context) | - | - |
-| User | Email (case-insensitive) | Slack user ID | - |
-| Role | Name (case-insensitive) | - | - |
-| Custom Field | Name + option value | - | - |
+| Entity       | Primary                        | Fallback 1    | Fallback 2    |
+| ------------ | ------------------------------ | ------------- | ------------- |
+| Severity     | Name (case-insensitive)        | Closest rank  | -             |
+| Status       | Name + category                | Name only     | Category only |
+| Type         | Name (case-insensitive)        | -             | -             |
+| Timestamp    | Name (requires source context) | -             | -             |
+| User         | Email (case-insensitive)       | Slack user ID | -             |
+| Role         | Name (case-insensitive)        | -             | -             |
+| Custom Field | Name + option value            | -             | -             |
 
 All mappers return `MappingResult<T>` with:
+
 - `value?: T` - Mapped ID (if successful)
 - `warnings: string[]` - Any mapping issues
 

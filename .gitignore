@@ -10,3 +10,4 @@ import-report.json
 exports/
 *.jsonl
 manifest.json
+tmp/*

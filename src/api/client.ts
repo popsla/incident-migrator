@@ -44,10 +44,7 @@ export class IncidentIoApiClient {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  private async request<T>(
-    endpoint: string,
-    options: RequestOptions = {}
-  ): Promise<T> {
+  private async request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
     const { method = 'GET', body, query } = options;
     let url = `${this.baseUrl}${endpoint}`;
 
@@ -80,7 +77,9 @@ export class IncidentIoApiClient {
         // Handle rate limiting
         if (response.status === 429) {
           const retryAfter = response.headers.get('retry-after');
-          const waitMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : this.retryDelay * Math.pow(2, attempt);
+          const waitMs = retryAfter
+            ? parseInt(retryAfter, 10) * 1000
+            : this.retryDelay * Math.pow(2, attempt);
           logger.warn(`Rate limited. Retrying after ${waitMs}ms...`);
           await this.sleep(waitMs);
           continue;
@@ -121,17 +120,25 @@ export class IncidentIoApiClient {
   }
 
   // Incidents
-  async listIncidents(params: {
-    page_size?: number;
-    after?: string;
-    status_category?: string;
-  } = {}): Promise<{ incidents: Incident[]; pagination_meta?: { after?: string; page_size?: number; total_record_count?: number } }> {
+  async listIncidents(
+    params: {
+      page_size?: number;
+      after?: string;
+      status_category?: string;
+    } = {}
+  ): Promise<{
+    incidents: Incident[];
+    pagination_meta?: { after?: string; page_size?: number; total_record_count?: number };
+  }> {
     const query: Record<string, string> = {};
     if (params.page_size) query.page_size = params.page_size.toString();
     if (params.after) query.after = params.after;
     if (params.status_category) query['status_category[]'] = params.status_category;
 
-    return this.request<{ incidents: Incident[]; pagination_meta?: { after?: string; page_size?: number; total_record_count?: number } }>('/v2/incidents', { query });
+    return this.request<{
+      incidents: Incident[];
+      pagination_meta?: { after?: string; page_size?: number; total_record_count?: number };
+    }>('/v2/incidents', { query });
   }
 
   async getIncident(id: string): Promise<{ incident: Incident }> {
@@ -184,12 +191,18 @@ export class IncidentIoApiClient {
     return this.request<{ incident_roles: IncidentRole[] }>('/v2/incident_roles');
   }
 
-  async listUsers(params: { page_size?: number; after?: string } = {}): Promise<{ users: User[]; pagination_meta?: { after?: string; page_size?: number; total_record_count?: number } }> {
+  async listUsers(params: { page_size?: number; after?: string } = {}): Promise<{
+    users: User[];
+    pagination_meta?: { after?: string; page_size?: number; total_record_count?: number };
+  }> {
     const query: Record<string, string> = {};
     if (params.page_size) query.page_size = params.page_size.toString();
     if (params.after) query.after = params.after;
 
-    return this.request<{ users: User[]; pagination_meta?: { after?: string; page_size?: number; total_record_count?: number } }>('/v2/users', { query });
+    return this.request<{
+      users: User[];
+      pagination_meta?: { after?: string; page_size?: number; total_record_count?: number };
+    }>('/v2/users', { query });
   }
 }
 
