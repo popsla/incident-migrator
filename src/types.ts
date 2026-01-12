@@ -15,16 +15,19 @@ export interface IncidentTimestampValueResponse {
 // Request format (for POST /incidents)
 export interface IncidentTimestampValue {
   incident_timestamp_id: string;
+  incident_timestamp?: IncidentTimestamp; // Full object preserved from export for mapping
   value: string; // ISO 8601
 }
 
 export interface CustomFieldValue {
   custom_field_id: string;
-  value?: string | string[]; // depends on field type
+  custom_field?: CustomField; // Full object preserved from export for mapping
+  values?: any[]; // Array format that the API expects
 }
 
 export interface IncidentRoleAssignment {
   incident_role_id: string;
+  role?: IncidentRole; // Full object preserved from export for mapping
   assignee?: {
     id: string;
     email?: string;
