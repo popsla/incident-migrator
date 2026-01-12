@@ -171,6 +171,22 @@ export class Importer {
       if (allWarnings.length > 5) {
         logger.warn(`  ... and ${allWarnings.length - 5} more (see ${reportFile})`);
       }
+    // Save allWarnings and some stats to a warnings file
+    const warningsFile = reportFile.replace(/(\.\w+)?$/, '.warnings.json');
+    const warningsStats: Record<string, number> = {};
+    for (const warning of allWarnings) {
+      warningsStats[warning] = (warningsStats[warning] || 0) + 1;
+    }
+    const warningsOutput = {
+      totalWarnings: allWarnings.length,
+      uniqueWarnings: Object.keys(warningsStats).length,
+      warningsStats,
+      samples: [...new Set(allWarnings)].slice(0, 20),
+      allWarnings, // for reference, in case detailed review is desired
+    };
+    await writeReport(warningsFile, warningsOutput);
+    logger.info(`Warnings written to: ${warningsFile}`);
+  
     }
 
     if (!dryRun) {
