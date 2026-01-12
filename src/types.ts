@@ -188,9 +188,9 @@ export interface CreateIncidentRequest {
   summary?: string;
   visibility: 'public' | 'private';
   severity_id?: string;
-  incident_status_id?: string;  // Note: API uses incident_status_id not status_id
+  incident_status_id?: string; // Note: API uses incident_status_id not status_id
   incident_type_id?: string;
-  custom_field_entries?: CustomFieldValue[];  // Note: API uses custom_field_entries not custom_field_values
+  custom_field_entries?: CustomFieldValue[]; // Note: API uses custom_field_entries not custom_field_values
   incident_timestamp_values?: IncidentTimestampValue[];
   incident_role_assignments?: IncidentRoleAssignment[];
   retrospective_incident_options?: RetrospectiveIncidentOptions;

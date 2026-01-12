@@ -20,8 +20,8 @@ This is useful when you want historical incidents in a new environment (for repo
 - Node.js 20+
 - API keys for both environments (source and target)
 
-Create API keys at:  
-https://app.incident.io/settings/api-keys
+Create API keys at:
+`https://app.incident.io/settings/api-keys`
 
 ### Required API scopes
 
@@ -59,6 +59,16 @@ npm install
 npm run build
 ```
 
+## Optional: pre-commit hooks
+
+This repo includes a `.pre-commit-config.yaml` to run basic checks (formatting, lint, TypeScript typecheck) before commits.
+
+Enable it locally:
+
+```bash
+pre-commit install
+```
+
 ## Usage
 
 ### 1. Validate credentials
@@ -89,8 +99,8 @@ node dist/cli.js import --in ./exports
 
 Incidents are created as **retrospective**, so:
 
-- no Slack channels are created  
-- no notifications are sent  
+- no Slack channels are created
+- no notifications are sent
 
 ### 5. Resume if interrupted
 

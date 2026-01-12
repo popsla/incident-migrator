@@ -1,9 +1,4 @@
-import {
-  mapSeverity,
-  mapStatus,
-  mapIncidentType,
-  mapUser,
-} from '../src/mapping/mappers';
+import { mapSeverity, mapStatus, mapIncidentType, mapUser } from '../src/mapping/mappers';
 import type { Severity, IncidentStatus, IncidentType, User } from '../src/types';
 
 describe('Mapping Functions', () => {

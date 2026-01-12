@@ -1,7 +1,15 @@
 import { join } from 'path';
 import { IncidentIoApiClient } from '../api/client.js';
 import { logger } from '../util/logging.js';
-import { readJsonl, readState, writeState, writeReport, fileExists, isDirectory } from '../util/fs.js';
+import {
+  readJsonl,
+  readState,
+  writeState,
+  writeReport,
+  writeJson,
+  fileExists,
+  isDirectory,
+} from '../util/fs.js';
 import { normalizeIncident } from '../util/normalize.js';
 import { buildMappingContext } from '../mapping/index.js';
 import {
@@ -67,7 +75,9 @@ export class Importer {
         state = existingState;
         const importedCount = Object.keys(state.mapping).length;
         if (importedCount > 0) {
-          logger.info(`Found ${importedCount} previously imported incident(s), will skip duplicates`);
+          logger.info(
+            `Found ${importedCount} previously imported incident(s), will skip duplicates`
+          );
         }
         if (resume) {
           logger.info(`Resuming from previous import`);
@@ -108,12 +118,10 @@ export class Importer {
             const bundle = queue.shift();
             if (!bundle) break;
 
-            const result = await this.importIncident(
-              bundle,
-              targetContext,
-              state,
-              { dryRun, strict }
-            );
+            const result = await this.importIncident(bundle, targetContext, state, {
+              dryRun,
+              strict,
+            });
             results.push(result);
 
             if (result.status === 'created' && result.targetIncidentId) {
@@ -171,22 +179,21 @@ export class Importer {
       if (allWarnings.length > 5) {
         logger.warn(`  ... and ${allWarnings.length - 5} more (see ${reportFile})`);
       }
-    // Save allWarnings and some stats to a warnings file
-    const warningsFile = reportFile.replace(/(\.\w+)?$/, '.warnings.json');
-    const warningsStats: Record<string, number> = {};
-    for (const warning of allWarnings) {
-      warningsStats[warning] = (warningsStats[warning] || 0) + 1;
-    }
-    const warningsOutput = {
-      totalWarnings: allWarnings.length,
-      uniqueWarnings: Object.keys(warningsStats).length,
-      warningsStats,
-      samples: [...new Set(allWarnings)].slice(0, 20),
-      allWarnings, // for reference, in case detailed review is desired
-    };
-    await writeReport(warningsFile, warningsOutput);
-    logger.info(`Warnings written to: ${warningsFile}`);
-  
+      // Save allWarnings and some stats to a warnings file
+      const warningsFile = reportFile.replace(/(\.\w+)?$/, '.warnings.json');
+      const warningsStats: Record<string, number> = {};
+      for (const warning of allWarnings) {
+        warningsStats[warning] = (warningsStats[warning] || 0) + 1;
+      }
+      const warningsOutput = {
+        totalWarnings: allWarnings.length,
+        uniqueWarnings: Object.keys(warningsStats).length,
+        warningsStats,
+        samples: [...new Set(allWarnings)].slice(0, 20),
+        allWarnings, // for reference, in case detailed review is desired
+      };
+      await writeJson(warningsFile, warningsOutput);
+      logger.info(`Warnings written to: ${warningsFile}`);
     }
 
     if (!dryRun) {
@@ -233,7 +240,10 @@ export class Importer {
         // No status in source - find "Closed" status in target for retrospective incidents
         for (const [id, status] of targetContext.statuses) {
           if (status.category === 'closed' || status.name.toLowerCase().includes('closed')) {
-            statusResult = { value: id, warnings: ['Status was null in source, defaulted to Closed'] };
+            statusResult = {
+              value: id,
+              warnings: ['Status was null in source, defaulted to Closed'],
+            };
             break;
           }
         }
@@ -318,21 +328,29 @@ export class Importer {
       }
       if (timestampResult.value && timestampResult.value.length > 0) {
         createRequest.incident_timestamp_values = timestampResult.value;
-        logger.debug(`Mapped ${timestampResult.value.length} timestamps for ${incident.reference}:`);
+        logger.debug(
+          `Mapped ${timestampResult.value.length} timestamps for ${incident.reference}:`
+        );
         timestampResult.value.forEach((ts) => {
           logger.debug(`  - ${ts.incident_timestamp_id}: ${ts.value}`);
         });
       } else {
-        logger.debug(`No timestamps mapped for ${incident.reference} (source had ${incident.incident_timestamp_values?.length || 0})`);
+        logger.debug(
+          `No timestamps mapped for ${incident.reference} (source had ${incident.incident_timestamp_values?.length || 0})`
+        );
       }
       if (roleResult.value && roleResult.value.length > 0) {
         createRequest.incident_role_assignments = roleResult.value;
         logger.debug(`Mapped ${roleResult.value.length} roles for ${incident.reference}:`);
         roleResult.value.forEach((role) => {
-          logger.debug(`  - ${role.incident_role_id}: ${role.assignee ? role.assignee.id : 'unassigned'}`);
+          logger.debug(
+            `  - ${role.incident_role_id}: ${role.assignee ? role.assignee.id : 'unassigned'}`
+          );
         });
       } else {
-        logger.debug(`No roles mapped for ${incident.reference} (source had ${incident.incident_role_assignments?.length || 0})`);
+        logger.debug(
+          `No roles mapped for ${incident.reference} (source had ${incident.incident_role_assignments?.length || 0})`
+        );
       }
       if (customFieldResult.value && customFieldResult.value.length > 0) {
         createRequest.custom_field_entries = customFieldResult.value;
