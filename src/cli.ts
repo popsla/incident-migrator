@@ -6,6 +6,7 @@ import { Exporter } from './export/exporter.js';
 import { Importer } from './import/importer.js';
 import { buildMappingContext } from './mapping/index.js';
 import { generateCorrespondenceMatrix } from './correspondence/generateCorrespondenceMatrix.js';
+import { patchCustomFieldIds } from './patch/patchCustomFieldIds.js';
 import { logger } from './util/logging.js';
 import type { Config } from './types.js';
 
@@ -199,6 +200,33 @@ program
       });
     } catch (error) {
       logger.error('generate-correspondence-matrix failed:', error);
+      process.exit(1);
+    }
+  });
+
+// Patch exported incidents custom field IDs using a correspondence CSV
+program
+  .command('patch')
+  .description('Patch exported incidents JSONL by replacing source custom field IDs with target IDs from a CSV mapping')
+  .requiredOption('--incidents <path>', 'Path to incidents.jsonl to patch')
+  .requiredOption('--custom-fields <path>', 'Path to custom-fields.csv mapping file')
+  .option('--out <path>', 'Output patched incidents JSONL (default: <incidents>.patched.jsonl)')
+  .option('--in-place', 'Patch the incidents file in-place (atomic rewrite)')
+  .option('--debug', 'Enable debug logging')
+  .action(async (options) => {
+    try {
+      if (options.debug) {
+        logger.setDebug(true);
+      }
+
+      await patchCustomFieldIds({
+        incidentsFile: options.incidents,
+        mappingCsvFile: options.customFields,
+        outputFile: options.out,
+        inPlace: options.inPlace,
+      });
+    } catch (error) {
+      logger.error('patch failed:', error);
       process.exit(1);
     }
   });
