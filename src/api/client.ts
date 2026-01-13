@@ -183,6 +183,21 @@ export class IncidentIoApiClient {
     return this.request<{ custom_fields: CustomField[] }>('/v2/custom_fields');
   }
 
+  // Custom Fields (V2) - paginated variant
+  async listCustomFieldsV2(params: { page_size?: number; after?: string } = {}): Promise<{
+    custom_fields: CustomField[];
+    pagination_meta?: { after?: string; page_size?: number; total_record_count?: number };
+  }> {
+    const query: Record<string, string> = {};
+    if (params.page_size) query.page_size = params.page_size.toString();
+    if (params.after) query.after = params.after;
+
+    return this.request<{
+      custom_fields: CustomField[];
+      pagination_meta?: { after?: string; page_size?: number; total_record_count?: number };
+    }>('/v2/custom_fields', { query });
+  }
+
   async listIncidentTimestamps(): Promise<{ incident_timestamps: IncidentTimestamp[] }> {
     return this.request<{ incident_timestamps: IncidentTimestamp[] }>('/v2/incident_timestamps');
   }

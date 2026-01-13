@@ -5,6 +5,7 @@ import { IncidentIoApiClient } from './api/client.js';
 import { Exporter } from './export/exporter.js';
 import { Importer } from './import/importer.js';
 import { buildMappingContext } from './mapping/index.js';
+import { generateCorrespondenceMatrix } from './correspondence/generateCorrespondenceMatrix.js';
 import { logger } from './util/logging.js';
 import type { Config } from './types.js';
 
@@ -162,6 +163,42 @@ program
       }
     } catch (error) {
       logger.error('Validation failed:', error);
+      process.exit(1);
+    }
+  });
+
+// Generate correspondence matrix for custom fields
+program
+  .command('generate-correspondence-matrix')
+  .description('Generate a deterministic mapping CSV for custom fields between SOURCE and TARGET')
+  .option('--out <path>', 'Output CSV file path', 'custom-fields-correspondence.csv')
+  .option('--page-size <n>', 'API page size for listing custom fields', parseInt, 100)
+  .option('--debug', 'Enable debug logging')
+  .action(async (options) => {
+    try {
+      if (options.debug) {
+        logger.setDebug(true);
+      }
+
+      // Requires both environments
+      const sourceConfig = getConfig(true);
+      const targetConfig = getConfig(false);
+
+      const sourceClient = new IncidentIoApiClient({
+        apiKey: sourceConfig.sourceApiKey,
+        baseUrl: sourceConfig.sourceBaseUrl,
+      });
+      const targetClient = new IncidentIoApiClient({
+        apiKey: targetConfig.targetApiKey,
+        baseUrl: targetConfig.targetBaseUrl,
+      });
+
+      await generateCorrespondenceMatrix(sourceClient, targetClient, {
+        outputFile: options.out,
+        pageSize: options.pageSize,
+      });
+    } catch (error) {
+      logger.error('generate-correspondence-matrix failed:', error);
       process.exit(1);
     }
   });
