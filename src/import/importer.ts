@@ -181,14 +181,113 @@ export class Importer {
       }
       // Save allWarnings and some stats to a warnings file
       const warningsFile = reportFile.replace(/(\.\w+)?$/, '.warnings.json');
-      const warningsStats: Record<string, number> = {};
+      const warningsStatsRaw: Record<string, number> = {};
       for (const warning of allWarnings) {
-        warningsStats[warning] = (warningsStats[warning] || 0) + 1;
+        warningsStatsRaw[warning] = (warningsStatsRaw[warning] || 0) + 1;
       }
+
+      // Sort warnings by count DESC (stable) for easier triage
+      const warningsSorted = Object.entries(warningsStatsRaw).sort(
+        ([aKey, aCount], [bKey, bCount]) => bCount - aCount || aKey.localeCompare(bKey)
+      );
+      const warningsStats: Record<string, number> = Object.fromEntries(warningsSorted);
+
+      // Organize warnings by kind for easier triage
+      type WarningKind = 'Option' | 'User' | 'CustomField' | 'AlreadyImported' | 'Other';
+      const kindForWarning = (warning: string): WarningKind => {
+        if (warning === 'Already imported') return 'AlreadyImported';
+        if (warning.startsWith('Option "')) return 'Option';
+        if (warning.startsWith('User ')) return 'User';
+        if (warning.startsWith('Custom field "')) return 'CustomField';
+        return 'Other';
+      };
+
+      const warningsByKindRaw: Partial<Record<WarningKind, Record<string, number>>> = {};
+      const kindTotalsRaw: Partial<Record<WarningKind, number>> = {};
+
+      for (const [warning, count] of warningsSorted) {
+        const kind = kindForWarning(warning);
+        kindTotalsRaw[kind] = (kindTotalsRaw[kind] || 0) + count;
+        const bucket = warningsByKindRaw[kind] || (warningsByKindRaw[kind] = {});
+        bucket[warning] = count;
+      }
+
+      const kindTotalsEntries = Object.entries(kindTotalsRaw) as Array<[WarningKind, number]>;
+      kindTotalsEntries.sort(
+        ([aKind, aTotal], [bKind, bTotal]) => bTotal - aTotal || aKind.localeCompare(bKind)
+      );
+      const kindTotals = Object.fromEntries(kindTotalsEntries) as Record<WarningKind, number>;
+
+      const warningsByKindEntries = Object.entries(warningsByKindRaw) as Array<
+        [WarningKind, Record<string, number>]
+      >;
+      warningsByKindEntries.sort(
+        ([aKind], [bKind]) => kindTotals[bKind] - kindTotals[aKind] || aKind.localeCompare(bKind)
+      );
+      const warningsByKind = Object.fromEntries(
+        warningsByKindEntries.map(([kind, bucket]) => {
+          const sorted = Object.entries(bucket).sort(
+            ([aMsg, aCount], [bMsg, bCount]) => bCount - aCount || aMsg.localeCompare(bMsg)
+          );
+          return [kind, Object.fromEntries(sorted)];
+        })
+      ) as Record<WarningKind, Record<string, number>>;
+
+      // Group option-missing warnings by field name: Option "<x>" in field "<FIELD>" not found in target
+      const optionMissingRe = /^Option "(.+)" in field "(.+)" not found in target$/;
+      const optionIssuesByField: Record<
+        string,
+        {
+          total: number;
+          unique: number;
+          optionsStats: Record<string, number>;
+          topOptions: Array<{ option: string; count: number }>;
+        }
+      > = {};
+
+      for (const [warning, count] of warningsSorted) {
+        const m = warning.match(optionMissingRe);
+        if (!m) continue;
+        const option = m[1];
+        const field = m[2];
+
+        const bucket =
+          optionIssuesByField[field] ||
+          (optionIssuesByField[field] = {
+            total: 0,
+            unique: 0,
+            optionsStats: {},
+            topOptions: [],
+          });
+
+        bucket.total += count;
+        bucket.optionsStats[option] = (bucket.optionsStats[option] || 0) + count;
+      }
+
+      // Finalize option issue buckets with sorted option stats (DESC) + topOptions
+      for (const [field, bucket] of Object.entries(optionIssuesByField)) {
+        const sortedOptions = Object.entries(bucket.optionsStats).sort(
+          ([aOpt, aCount], [bOpt, bCount]) => bCount - aCount || aOpt.localeCompare(bOpt)
+        );
+        bucket.optionsStats = Object.fromEntries(sortedOptions);
+        bucket.unique = sortedOptions.length;
+        bucket.topOptions = sortedOptions.slice(0, 20).map(([option, c]) => ({ option, count: c }));
+        optionIssuesByField[field] = bucket;
+      }
+
+      const optionIssuesByFieldSorted = Object.fromEntries(
+        Object.entries(optionIssuesByField).sort(
+          ([aField, aBucket], [bField, bBucket]) => bBucket.total - aBucket.total || aField.localeCompare(bField)
+        )
+      );
+
       const warningsOutput = {
         totalWarnings: allWarnings.length,
-        uniqueWarnings: Object.keys(warningsStats).length,
+        uniqueWarnings: Object.keys(warningsStatsRaw).length,
         warningsStats,
+        kindTotals,
+        warningsByKind,
+        optionIssuesByField: optionIssuesByFieldSorted,
         samples: [...new Set(allWarnings)].slice(0, 20),
         allWarnings, // for reference, in case detailed review is desired
       };
