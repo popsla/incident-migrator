@@ -278,7 +278,8 @@ export class Importer {
       const customFieldResult = mapCustomFieldValues(
         incident.custom_field_values,
         this.sourceContext?.customFields || new Map(),
-        targetContext.customFields
+        targetContext.customFields,
+        targetContext.catalogEntriesByType
       );
       result.warnings.push(...customFieldResult.warnings);
 

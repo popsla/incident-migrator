@@ -131,7 +131,12 @@ function patchValue(
   ambiguousSourceIds: Set<string>,
   ctx: { inCustomFieldContext: boolean; keyHint?: string }
 ): { value: unknown; stats: PatchStats } {
-  const stats: PatchStats = { replaced: 0, skippedNoTarget: 0, skippedNoMatch: 0, skippedAmbiguous: 0 };
+  const stats: PatchStats = {
+    replaced: 0,
+    skippedNoTarget: 0,
+    skippedNoMatch: 0,
+    skippedAmbiguous: 0,
+  };
 
   const patchIdString = (id: string): string => {
     if (!isLikelyIncidentIoId(id)) return id;
@@ -222,10 +227,9 @@ export async function patchCustomFieldIds(options: PatchCustomFieldIdsOptions): 
   const { incidentsFile, mappingCsvFile } = options;
   const baseName = incidentsFile.split('/').pop() || 'incidents.jsonl';
 
-  const outputFile =
-    options.inPlace
-      ? join(dirname(incidentsFile), `${baseName}.tmp.patched.jsonl`)
-      : options.outputFile || join(dirname(incidentsFile), `${baseName}.patched.jsonl`);
+  const outputFile = options.inPlace
+    ? join(dirname(incidentsFile), `${baseName}.tmp.patched.jsonl`)
+    : options.outputFile || join(dirname(incidentsFile), `${baseName}.patched.jsonl`);
 
   logger.info('Patching incidents custom field IDs...');
   logger.info(`Incidents: ${incidentsFile}`);
@@ -306,4 +310,3 @@ export async function patchCustomFieldIds(options: PatchCustomFieldIdsOptions): 
   logger.info(`IDs skipped (no target_id): ${skippedNoTarget}`);
   logger.info(`IDs skipped (no match): ${skippedNoMatch}`);
 }
-

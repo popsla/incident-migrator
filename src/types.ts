@@ -137,6 +137,13 @@ export interface CustomField {
   options?: CustomFieldOption[];
 }
 
+export interface CatalogEntry {
+  id: string;
+  name: string;
+  external_id?: string;
+  aliases?: string[];
+}
+
 export interface CustomFieldOption {
   id: string;
   value: string;
@@ -255,6 +262,9 @@ export interface MappingContext {
   statuses: Map<string, IncidentStatus>;
   types: Map<string, IncidentType>;
   customFields: Map<string, CustomField>;
+  // For catalog-backed custom fields (custom_fields with catalog_type_id), we index catalog entries
+  // by a normalized key (external_id, aliases, name) within each catalog type for deterministic matching.
+  catalogEntriesByType: Map<string, Map<string, CatalogEntry>>;
   timestamps: Map<string, IncidentTimestamp>;
   roles: Map<string, IncidentRole>;
   users: Map<string, User>;

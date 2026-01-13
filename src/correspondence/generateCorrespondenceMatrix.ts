@@ -109,4 +109,3 @@ export async function generateCorrespondenceMatrix(
   logger.info(`Matched: ${matched}`);
   logger.info(`Unmatched: ${unmatched}`);
 }
-

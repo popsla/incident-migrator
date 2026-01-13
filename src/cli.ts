@@ -207,7 +207,9 @@ program
 // Patch exported incidents custom field IDs using a correspondence CSV
 program
   .command('patch')
-  .description('Patch exported incidents JSONL by replacing source custom field IDs with target IDs from a CSV mapping')
+  .description(
+    'Patch exported incidents JSONL by replacing source custom field IDs with target IDs from a CSV mapping'
+  )
   .requiredOption('--incidents <path>', 'Path to incidents.jsonl to patch')
   .requiredOption('--custom-fields <path>', 'Path to custom-fields.csv mapping file')
   .option('--out <path>', 'Output patched incidents JSONL (default: <incidents>.patched.jsonl)')

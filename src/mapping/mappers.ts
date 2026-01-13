@@ -9,6 +9,7 @@ import type {
   IncidentRole,
   IncidentRoleAssignment,
   User,
+  CatalogEntry,
 } from '../types.js';
 
 export interface MappingResult<T> {
@@ -283,7 +284,8 @@ export function mapRoleAssignments(
 export function mapCustomFieldValues(
   sourceValues: CustomFieldValue[] | undefined,
   sourceFields: Map<string, CustomField>,
-  targetFields: Map<string, CustomField>
+  targetFields: Map<string, CustomField>,
+  targetCatalogEntriesByType?: Map<string, Map<string, CatalogEntry>>
 ): MappingResult<CustomFieldValue[]> {
   if (!sourceValues || sourceValues.length === 0) {
     return { value: [], warnings: [] };
@@ -316,7 +318,12 @@ export function mapCustomFieldValues(
 
     // Map the value based on field type
     if (targetField.field_type === 'single_select' || targetField.field_type === 'multi_select') {
-      const mappedValue = mapSelectFieldValue(sourceValue.values, sourceField, targetField);
+      const mappedValue = mapSelectFieldValue(
+        sourceValue.values,
+        sourceField,
+        targetField,
+        targetCatalogEntriesByType
+      );
       if (mappedValue.value !== undefined && mappedValue.value.length > 0) {
         mapped.push({
           custom_field_id: targetField.id,
@@ -341,7 +348,8 @@ export function mapCustomFieldValues(
 function mapSelectFieldValue(
   sourceValues: any[] | undefined,
   sourceField: CustomField,
-  targetField: CustomField
+  targetField: CustomField,
+  targetCatalogEntriesByType?: Map<string, Map<string, CatalogEntry>>
 ): MappingResult<any[]> {
   if (!sourceValues || sourceValues.length === 0) {
     return { value: [], warnings: [] };
@@ -351,21 +359,73 @@ function mapSelectFieldValue(
   const mapped: any[] = [];
   const warnings: string[] = [];
 
+  const normalizeKey = (s: string): string => s.trim().toLowerCase();
+  const targetCatalogIndex =
+    targetField.catalog_type_id && targetCatalogEntriesByType
+      ? targetCatalogEntriesByType.get(targetField.catalog_type_id)
+      : undefined;
+
   for (const valueEntry of sourceValues) {
-    // Extract the name from value_catalog_entry
-    const sourceName = valueEntry.value_catalog_entry?.name;
-    if (!sourceName) {
+    // Catalog-backed values: exported as value_catalog_entry objects (name/external_id/aliases).
+    const sourceCatalogEntry = valueEntry.value_catalog_entry;
+    if (sourceCatalogEntry && targetCatalogIndex) {
+      const candidateKeys: string[] = [];
+      if (
+        typeof sourceCatalogEntry.external_id === 'string' &&
+        sourceCatalogEntry.external_id.trim()
+      ) {
+        candidateKeys.push(normalizeKey(sourceCatalogEntry.external_id));
+      }
+      if (Array.isArray(sourceCatalogEntry.aliases)) {
+        for (const a of sourceCatalogEntry.aliases) {
+          if (typeof a === 'string' && a.trim()) candidateKeys.push(normalizeKey(a));
+        }
+      }
+      if (typeof sourceCatalogEntry.name === 'string' && sourceCatalogEntry.name.trim()) {
+        candidateKeys.push(normalizeKey(sourceCatalogEntry.name));
+      }
+
+      let match: CatalogEntry | undefined;
+      for (const key of candidateKeys) {
+        const found = targetCatalogIndex.get(key);
+        if (found) {
+          match = found;
+          break;
+        }
+      }
+
+      if (match) {
+        mapped.push({
+          value_link: {
+            catalog_entry_id: match.id,
+          },
+        });
+      } else {
+        const label = sourceCatalogEntry.name || 'unknown';
+        warnings.push(`Option "${label}" in field "${sourceField.name}" not found in target`);
+      }
+      continue;
+    }
+
+    // Fallback: non-catalog select fields (match against custom field options by value).
+    const sourceName =
+      valueEntry.value_option?.value ??
+      valueEntry.value_catalog_entry?.name ??
+      valueEntry.value_string ??
+      valueEntry.value_text ??
+      valueEntry.value;
+
+    if (typeof sourceName !== 'string' || !sourceName.trim()) {
       warnings.push(`Value entry missing name in field "${sourceField.name}"`);
       continue;
     }
 
-    // Find matching target option by name
     const targetOption = targetOptions.find(
       (o) => o.value.toLowerCase() === sourceName.toLowerCase()
     );
 
     if (targetOption) {
-      // Build the value entry in the format the API expects
+      // Keep existing request shape for backwards-compat with current importer behavior.
       mapped.push({
         value_link: {
           catalog_entry_id: targetOption.id,

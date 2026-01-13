@@ -219,6 +219,30 @@ export class IncidentIoApiClient {
       pagination_meta?: { after?: string; page_size?: number; total_record_count?: number };
     }>('/v2/users', { query });
   }
+
+  // Catalog (V2) - list entries for a given catalog type (paginated)
+  async listCatalogEntriesV2(params: {
+    catalog_type_id: string;
+    page_size?: number;
+    after?: string;
+  }): Promise<{
+    catalog_entries: Array<{ id: string; name: string; external_id?: string; aliases?: string[] }>;
+    pagination_meta?: { after?: string; page_size?: number; total_record_count?: number };
+  }> {
+    const query: Record<string, string> = { catalog_type_id: params.catalog_type_id };
+    if (params.page_size) query.page_size = params.page_size.toString();
+    if (params.after) query.after = params.after;
+
+    return this.request<{
+      catalog_entries: Array<{
+        id: string;
+        name: string;
+        external_id?: string;
+        aliases?: string[];
+      }>;
+      pagination_meta?: { after?: string; page_size?: number; total_record_count?: number };
+    }>('/v2/catalog_entries', { query });
+  }
 }
 
 // Pagination helper
