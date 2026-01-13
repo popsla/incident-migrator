@@ -350,16 +350,16 @@ function mapSelectFieldValue(
   sourceField: CustomField,
   targetField: CustomField,
   targetCatalogEntriesByType?: Map<string, Map<string, CatalogEntry>>
-): MappingResult<Array<{ value_link: { catalog_entry_id: string } }>> {
+): MappingResult<Array<{ value_link: { catalog_entry_id: string } } | { value_option_id: string }>> {
   if (!sourceValues || sourceValues.length === 0) {
     return { value: [], warnings: [] };
   }
 
   const targetOptions = targetField.options || [];
-  const mapped: Array<{ value_link: { catalog_entry_id: string } }> = [];
+  const mapped: Array<{ value_link: { catalog_entry_id: string } } | { value_option_id: string }> = [];
   const warnings: string[] = [];
 
-  const normalizeKey = (s: string): string => s.trim().toLowerCase();
+  const normalizeKey = (s: string): string => s.trim().toLowerCase().replace(/\s+/g, ' ');
   const targetCatalogIndex =
     targetField.catalog_type_id && targetCatalogEntriesByType
       ? targetCatalogEntriesByType.get(targetField.catalog_type_id)
@@ -425,15 +425,12 @@ function mapSelectFieldValue(
     }
 
     const targetOption = targetOptions.find(
-      (o) => o.value.toLowerCase() === sourceName.toLowerCase()
+      (o) => normalizeKey(o.value) === normalizeKey(sourceName)
     );
 
     if (targetOption) {
-      // Keep existing request shape for backwards-compat with current importer behavior.
       mapped.push({
-        value_link: {
-          catalog_entry_id: targetOption.id,
-        },
+        value_option_id: targetOption.id,
       });
     } else {
       warnings.push(`Option "${sourceName}" in field "${sourceField.name}" not found in target`);

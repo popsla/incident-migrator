@@ -10,6 +10,7 @@ export interface PatchCustomFieldIdsOptions {
   outputFile?: string;
   inPlace?: boolean;
   removeCustomFieldsFile?: string;
+  optionsPatchFile?: string;
 }
 
 type MappingLoadResult = {
@@ -174,12 +175,60 @@ async function loadRemoveCustomFields(
   return { removeIds, removeLabels };
 }
 
+function normalizeOptionKey(s: string): string {
+  return s.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+async function loadOptionsPatchCsv(csvPath: string): Promise<{
+  renameMap: Map<string, string>; // key: <field>\u0000<name> normalized
+  rows: number;
+  skippedEmptyNewName: number;
+}> {
+  const content = await readFile(csvPath, 'utf-8');
+  const lines = content.split(/\r?\n/).filter((l) => l.trim().length > 0);
+  if (lines.length === 0) return { renameMap: new Map(), rows: 0, skippedEmptyNewName: 0 };
+
+  const header = parseCsvLine(lines[0]).map((h) => h.trim());
+  const idxField = header.indexOf('field');
+  const idxName = header.indexOf('name');
+  const idxNewName = header.indexOf('new_name');
+  if (idxField === -1 || idxName === -1 || idxNewName === -1) {
+    throw new Error(`Invalid options patch CSV header. Expected columns: field,name,new_name`);
+  }
+
+  const renameMap = new Map<string, string>();
+  let rows = 0;
+  let skippedEmptyNewName = 0;
+
+  for (let i = 1; i < lines.length; i++) {
+    const row = parseCsvLine(lines[i]);
+    const field = (row[idxField] || '').trim();
+    const name = (row[idxName] || '').trim();
+    const newName = (row[idxNewName] || '').trim();
+    if (!field || !name) continue;
+    rows++;
+    if (!newName) {
+      skippedEmptyNewName++;
+      continue;
+    }
+    const key = `${normalizeOptionKey(field)}\u0000${normalizeOptionKey(name)}`;
+    // Deterministic: if duplicates exist, keep lexicographically smallest newName
+    const existing = renameMap.get(key);
+    if (!existing || newName.localeCompare(existing) < 0) {
+      renameMap.set(key, newName);
+    }
+  }
+
+  return { renameMap, rows, skippedEmptyNewName };
+}
+
 type PatchStats = {
   replaced: number;
   skippedNoTarget: number; // present in CSV but target_id empty
   skippedNoMatch: number; // not present in CSV mapping table at all (or ambiguous)
   skippedAmbiguous: number; // present in CSV with conflicting target_id values
   removed: number; // number of custom field entries removed (if configured)
+  renamedOptions: number; // number of option values renamed (if configured)
 };
 
 function patchValue(
@@ -189,6 +238,7 @@ function patchValue(
   ambiguousSourceIds: Set<string>,
   removeIds: Set<string> | undefined,
   removeLabels: Set<string> | undefined,
+  optionsRenameMap: Map<string, string> | undefined,
   ctx: { inCustomFieldContext: boolean; keyHint?: string }
 ): { value: unknown; stats: PatchStats } {
   const stats: PatchStats = {
@@ -197,6 +247,7 @@ function patchValue(
     skippedNoMatch: 0,
     skippedAmbiguous: 0,
     removed: 0,
+    renamedOptions: 0,
   };
 
   const patchIdString = (id: string): string => {
@@ -237,6 +288,7 @@ function patchValue(
         ambiguousSourceIds,
         removeIds,
         removeLabels,
+        optionsRenameMap,
         ctx
       );
       stats.replaced += r.stats.replaced;
@@ -244,6 +296,7 @@ function patchValue(
       stats.skippedNoMatch += r.stats.skippedNoMatch;
       stats.skippedAmbiguous += r.stats.skippedAmbiguous;
       stats.removed += r.stats.removed;
+      stats.renamedOptions += r.stats.renamedOptions;
       return r.value;
     });
     return { value: out, stats };
@@ -269,25 +322,6 @@ function patchValue(
         (keyLower === 'custom_field_entries' || keyLower === 'custom_field_values') &&
         Array.isArray(v)
       ) {
-        if (!removeIds && !removeLabels) {
-          const r = patchValue(
-            v,
-            mapping,
-            knownSourceIds,
-            ambiguousSourceIds,
-            removeIds,
-            removeLabels,
-            nextCtx
-          );
-          stats.replaced += r.stats.replaced;
-          stats.skippedNoTarget += r.stats.skippedNoTarget;
-          stats.skippedNoMatch += r.stats.skippedNoMatch;
-          stats.skippedAmbiguous += r.stats.skippedAmbiguous;
-          stats.removed += r.stats.removed;
-          out[k] = r.value;
-          continue;
-        }
-
         const filtered: unknown[] = [];
         for (const item of v) {
           if (item && typeof item === 'object') {
@@ -297,14 +331,48 @@ function patchValue(
               (typeof entry['custom_field_id'] === 'string'
                 ? entry['custom_field_id']
                 : undefined) ?? (typeof cfObj?.id === 'string' ? cfObj.id : undefined);
-            const cfName = typeof cfObj?.name === 'string' ? cfObj.name.toLowerCase() : undefined;
+            const cfNameRaw = typeof cfObj?.name === 'string' ? cfObj.name : undefined;
+            const cfName = cfNameRaw ? cfNameRaw.toLowerCase() : undefined;
 
             const shouldRemove =
-              (cfId && removeIds?.has(cfId)) || (cfName && removeLabels?.has(cfName));
+              ((cfId && removeIds?.has(cfId)) || (cfName && removeLabels?.has(cfName))) &&
+              (removeIds !== undefined || removeLabels !== undefined);
 
             if (shouldRemove) {
               stats.removed++;
               continue;
+            }
+
+            // Option renames: apply to values within this custom field entry (best-effort, deterministic)
+            if (optionsRenameMap && cfNameRaw && Array.isArray(entry['values'])) {
+              const fieldKey = normalizeOptionKey(cfNameRaw);
+              const values = entry['values'] as unknown[];
+              for (const ve of values) {
+                if (!ve || typeof ve !== 'object') continue;
+                const vobj = ve as Record<string, unknown>;
+
+                const valueOption = vobj['value_option'] as Record<string, unknown> | undefined;
+                if (valueOption && typeof valueOption['value'] === 'string') {
+                  const oldName = valueOption['value'];
+                  const key = `${fieldKey}\u0000${normalizeOptionKey(oldName)}`;
+                  const newName = optionsRenameMap.get(key);
+                  if (newName && newName !== oldName) {
+                    valueOption['value'] = newName;
+                    stats.renamedOptions++;
+                  }
+                }
+
+                const valueCatalog = vobj['value_catalog_entry'] as Record<string, unknown> | undefined;
+                if (valueCatalog && typeof valueCatalog['name'] === 'string') {
+                  const oldName = valueCatalog['name'];
+                  const key = `${fieldKey}\u0000${normalizeOptionKey(oldName)}`;
+                  const newName = optionsRenameMap.get(key);
+                  if (newName && newName !== oldName) {
+                    valueCatalog['name'] = newName;
+                    stats.renamedOptions++;
+                  }
+                }
+              }
             }
           }
           filtered.push(item);
@@ -318,6 +386,7 @@ function patchValue(
           ambiguousSourceIds,
           removeIds,
           removeLabels,
+          optionsRenameMap,
           nextCtx
         );
         stats.replaced += r.stats.replaced;
@@ -325,6 +394,7 @@ function patchValue(
         stats.skippedNoMatch += r.stats.skippedNoMatch;
         stats.skippedAmbiguous += r.stats.skippedAmbiguous;
         stats.removed += r.stats.removed;
+        stats.renamedOptions += r.stats.renamedOptions;
         out[k] = r.value;
         continue;
       }
@@ -351,6 +421,7 @@ function patchValue(
         ambiguousSourceIds,
         removeIds,
         removeLabels,
+        optionsRenameMap,
         nextCtx
       );
       stats.replaced += r.stats.replaced;
@@ -358,6 +429,7 @@ function patchValue(
       stats.skippedNoMatch += r.stats.skippedNoMatch;
       stats.skippedAmbiguous += r.stats.skippedAmbiguous;
       stats.removed += r.stats.removed;
+      stats.renamedOptions += r.stats.renamedOptions;
       out[k] = r.value;
     }
 
@@ -402,6 +474,15 @@ export async function patchCustomFieldIds(options: PatchCustomFieldIdsOptions): 
     );
   }
 
+  let optionsRenameMap: Map<string, string> | undefined;
+  if (options.optionsPatchFile) {
+    const loaded = await loadOptionsPatchCsv(options.optionsPatchFile);
+    optionsRenameMap = loaded.renameMap;
+    logger.info(
+      `Options patch: ${options.optionsPatchFile} (${loaded.rows} row(s), ${loaded.skippedEmptyNewName} missing new_name, ${optionsRenameMap.size} active rename(s))`
+    );
+  }
+
   const inputStream = createReadStream(incidentsFile, { encoding: 'utf-8' });
   const rl = createInterface({ input: inputStream, crlfDelay: Infinity });
   const outStream = createWriteStream(outputFile, { encoding: 'utf-8' });
@@ -412,6 +493,7 @@ export async function patchCustomFieldIds(options: PatchCustomFieldIdsOptions): 
   let skippedNoMatch = 0;
   let skippedAmbiguous = 0;
   let removedCustomFieldEntries = 0;
+  let renamedOptions = 0;
   let lineNumber = 0;
 
   try {
@@ -436,16 +518,18 @@ export async function patchCustomFieldIds(options: PatchCustomFieldIdsOptions): 
         ambiguousSourceIds,
         removeIds,
         removeLabels,
+        optionsRenameMap,
         { inCustomFieldContext: false }
       );
       removedCustomFieldEntries += r.stats.removed;
+      renamedOptions += r.stats.renamedOptions;
       replaced += r.stats.replaced;
       skippedNoTarget += r.stats.skippedNoTarget;
       skippedNoMatch += r.stats.skippedNoMatch;
       skippedAmbiguous += r.stats.skippedAmbiguous;
 
       // Preserve original line only if we didn't change anything (no id replacements and no removals)
-      if (r.stats.replaced === 0 && r.stats.removed === 0) {
+      if (r.stats.replaced === 0 && r.stats.removed === 0 && r.stats.renamedOptions === 0) {
         outStream.write(line + '\n');
       } else {
         outStream.write(JSON.stringify(r.value) + '\n');
@@ -474,5 +558,8 @@ export async function patchCustomFieldIds(options: PatchCustomFieldIdsOptions): 
   logger.info(`IDs skipped (no match): ${skippedNoMatch}`);
   if (options.removeCustomFieldsFile) {
     logger.info(`Custom field entries removed: ${removedCustomFieldEntries}`);
+  }
+  if (options.optionsPatchFile) {
+    logger.info(`Option values renamed: ${renamedOptions}`);
   }
 }

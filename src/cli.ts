@@ -216,6 +216,7 @@ program
     '--remove-custom-fields <path>',
     'Optional file containing list of custom fields to remove from incident payload'
   )
+  .option('--options-patch <path>', 'Optional CSV file to rename option values (field,name,new_name)')
   .option('--out <path>', 'Output patched incidents JSONL (default: <incidents>.patched.jsonl)')
   .option('--in-place', 'Patch the incidents file in-place (atomic rewrite)')
   .option('--debug', 'Enable debug logging')
@@ -231,6 +232,7 @@ program
         outputFile: options.out,
         inPlace: options.inPlace,
         removeCustomFieldsFile: options.removeCustomFields,
+        optionsPatchFile: options.optionsPatch,
       });
     } catch (error) {
       logger.error('patch failed:', error);

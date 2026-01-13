@@ -1,9 +1,14 @@
 import { IncidentIoApiClient, paginateAll } from '../api/client.js';
 import { logger } from '../util/logging.js';
-import type { CatalogEntry, CustomField, MappingContext } from '../types.js';
+import type { CatalogEntry, CustomField, CustomFieldOption, MappingContext } from '../types.js';
 
 type CatalogEntriesPage = {
   catalog_entries: CatalogEntry[];
+  pagination_meta?: { after?: string; page_size?: number; total_record_count?: number };
+};
+
+type CustomFieldOptionsPage = {
+  custom_field_options: CustomFieldOption[];
   pagination_meta?: { after?: string; page_size?: number; total_record_count?: number };
 };
 
@@ -32,6 +37,30 @@ export async function buildMappingContext(client: IncidentIoApiClient): Promise<
     (response) => response.custom_fields || []
   )) {
     custom_fields.push(field);
+  }
+
+  // For select fields (single/multi) that are NOT catalog-backed, load options via Custom Field Options V1.
+  // Note: /v2/custom_fields does not include options (options_len is often 0), even though the UI shows them.
+  const selectFieldsNeedingOptions = custom_fields.filter(
+    (f) =>
+      (f.field_type === 'single_select' || f.field_type === 'multi_select') &&
+      !f.catalog_type_id
+  );
+
+  for (const field of selectFieldsNeedingOptions) {
+    const options: CustomFieldOption[] = [];
+    for await (const opt of paginateAll<CustomFieldOption, CustomFieldOptionsPage>(
+      (after) =>
+        client.listCustomFieldOptionsV1({
+          custom_field_id: field.id,
+          page_size: 100,
+          after,
+        }) as Promise<CustomFieldOptionsPage>,
+      (response) => response.custom_field_options || []
+    )) {
+      options.push(opt);
+    }
+    field.options = options;
   }
 
   // Fetch all users with pagination

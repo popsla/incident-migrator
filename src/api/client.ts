@@ -8,6 +8,7 @@ import type {
   IncidentStatus,
   IncidentType,
   CustomField,
+  CustomFieldOption,
   CatalogEntry,
   IncidentTimestamp,
   IncidentRole,
@@ -238,6 +239,25 @@ export class IncidentIoApiClient {
       catalog_entries: CatalogEntry[];
       pagination_meta?: { after?: string; page_size?: number; total_record_count?: number };
     }>('/v2/catalog_entries', { query });
+  }
+
+  // Custom Field Options (V1) - list options for a given custom field (paginated)
+  async listCustomFieldOptionsV1(params: {
+    custom_field_id: string;
+    page_size?: number;
+    after?: string;
+  }): Promise<{
+    custom_field_options: CustomFieldOption[];
+    pagination_meta?: { after?: string; page_size?: number; total_record_count?: number };
+  }> {
+    const query: Record<string, string> = { custom_field_id: params.custom_field_id };
+    if (params.page_size) query.page_size = params.page_size.toString();
+    if (params.after) query.after = params.after;
+
+    return this.request<{
+      custom_field_options: CustomFieldOption[];
+      pagination_meta?: { after?: string; page_size?: number; total_record_count?: number };
+    }>('/v1/custom_field_options', { query });
   }
 }
 
