@@ -350,13 +350,13 @@ function mapSelectFieldValue(
   sourceField: CustomField,
   targetField: CustomField,
   targetCatalogEntriesByType?: Map<string, Map<string, CatalogEntry>>
-): MappingResult<Array<{ value_link: { catalog_entry_id: string } } | { value_option_id: string }>> {
+): MappingResult<Array<{ value_link: string } | { value_option_id: string }>> {
   if (!sourceValues || sourceValues.length === 0) {
     return { value: [], warnings: [] };
   }
 
   const targetOptions = targetField.options || [];
-  const mapped: Array<{ value_link: { catalog_entry_id: string } } | { value_option_id: string }> = [];
+  const mapped: Array<{ value_link: string } | { value_option_id: string }> = [];
   const warnings: string[] = [];
 
   const normalizeKey = (s: string): string => s.trim().toLowerCase().replace(/\s+/g, ' ');
@@ -399,9 +399,9 @@ function mapSelectFieldValue(
 
       if (match) {
         mapped.push({
-          value_link: {
-            catalog_entry_id: match.id,
-          },
+          // incident.io expects value_link to be the catalog entry ID (string),
+          // not an object wrapper.
+          value_link: match.id,
         });
       } else {
         const label = sourceCatalogEntry.name || 'unknown';
