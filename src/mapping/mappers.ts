@@ -346,17 +346,17 @@ export function mapCustomFieldValues(
 }
 
 function mapSelectFieldValue(
-  sourceValues: any[] | undefined,
+  sourceValues: unknown[] | undefined,
   sourceField: CustomField,
   targetField: CustomField,
   targetCatalogEntriesByType?: Map<string, Map<string, CatalogEntry>>
-): MappingResult<any[]> {
+): MappingResult<Array<{ value_link: { catalog_entry_id: string } }>> {
   if (!sourceValues || sourceValues.length === 0) {
     return { value: [], warnings: [] };
   }
 
   const targetOptions = targetField.options || [];
-  const mapped: any[] = [];
+  const mapped: Array<{ value_link: { catalog_entry_id: string } }> = [];
   const warnings: string[] = [];
 
   const normalizeKey = (s: string): string => s.trim().toLowerCase();
@@ -366,8 +366,11 @@ function mapSelectFieldValue(
       : undefined;
 
   for (const valueEntry of sourceValues) {
+    const entry = valueEntry as Record<string, unknown>;
     // Catalog-backed values: exported as value_catalog_entry objects (name/external_id/aliases).
-    const sourceCatalogEntry = valueEntry.value_catalog_entry;
+    const sourceCatalogEntry = entry['value_catalog_entry'] as
+      | { name?: string; external_id?: string; aliases?: unknown }
+      | undefined;
     if (sourceCatalogEntry && targetCatalogIndex) {
       const candidateKeys: string[] = [];
       if (
@@ -408,12 +411,13 @@ function mapSelectFieldValue(
     }
 
     // Fallback: non-catalog select fields (match against custom field options by value).
+    const valueOption = entry['value_option'] as { value?: unknown } | undefined;
     const sourceName =
-      valueEntry.value_option?.value ??
-      valueEntry.value_catalog_entry?.name ??
-      valueEntry.value_string ??
-      valueEntry.value_text ??
-      valueEntry.value;
+      (typeof valueOption?.value === 'string' ? valueOption.value : undefined) ??
+      (typeof sourceCatalogEntry?.name === 'string' ? sourceCatalogEntry.name : undefined) ??
+      (typeof entry['value_string'] === 'string' ? entry['value_string'] : undefined) ??
+      (typeof entry['value_text'] === 'string' ? entry['value_text'] : undefined) ??
+      (typeof entry['value'] === 'string' ? entry['value'] : undefined);
 
     if (typeof sourceName !== 'string' || !sourceName.trim()) {
       warnings.push(`Value entry missing name in field "${sourceField.name}"`);

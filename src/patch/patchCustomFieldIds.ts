@@ -9,12 +9,14 @@ export interface PatchCustomFieldIdsOptions {
   mappingCsvFile: string;
   outputFile?: string;
   inPlace?: boolean;
+  removeCustomFieldsFile?: string;
 }
 
 type MappingLoadResult = {
   knownSourceIds: Set<string>;
   mapping: Map<string, string>; // only entries with non-empty target_id and non-ambiguous source_id
   ambiguousSourceIds: Set<string>;
+  labelToSourceId: Map<string, string>;
   rows: number;
   rowsWithTarget: number;
 };
@@ -62,33 +64,45 @@ async function loadCustomFieldIdMapping(csvPath: string): Promise<MappingLoadRes
       knownSourceIds: new Set(),
       mapping: new Map(),
       ambiguousSourceIds: new Set(),
+      labelToSourceId: new Map(),
       rows: 0,
       rowsWithTarget: 0,
     };
   }
 
   const header = parseCsvLine(lines[0]).map((h) => h.trim());
+  const idxLabel = header.indexOf('label');
   const idxSource = header.indexOf('source_id');
   const idxTarget = header.indexOf('target_id');
-  if (idxSource === -1 || idxTarget === -1) {
+  if (idxLabel === -1 || idxSource === -1 || idxTarget === -1) {
     throw new Error(`Invalid mapping CSV header. Expected columns: label,source_id,target_id`);
   }
 
   const knownSourceIds = new Set<string>();
   const mapping = new Map<string, string>();
   const ambiguousSourceIds = new Set<string>();
+  const labelToSourceId = new Map<string, string>();
 
   let rows = 0;
   let rowsWithTarget = 0;
 
   for (let i = 1; i < lines.length; i++) {
     const row = parseCsvLine(lines[i]);
+    const label = (row[idxLabel] || '').trim();
     const sourceId = (row[idxSource] || '').trim();
     const targetId = (row[idxTarget] || '').trim();
 
     if (!sourceId) continue;
     rows++;
     knownSourceIds.add(sourceId);
+    if (label) {
+      // Keep deterministic mapping if duplicates: pick lexicographically smallest sourceId.
+      const key = label.toLowerCase();
+      const existing = labelToSourceId.get(key);
+      if (!existing || sourceId.localeCompare(existing) < 0) {
+        labelToSourceId.set(key, sourceId);
+      }
+    }
 
     if (!targetId) {
       continue;
@@ -109,7 +123,7 @@ async function loadCustomFieldIdMapping(csvPath: string): Promise<MappingLoadRes
     }
   }
 
-  return { knownSourceIds, mapping, ambiguousSourceIds, rows, rowsWithTarget };
+  return { knownSourceIds, mapping, ambiguousSourceIds, labelToSourceId, rows, rowsWithTarget };
 }
 
 function isLikelyIncidentIoId(value: string): boolean {
@@ -117,11 +131,55 @@ function isLikelyIncidentIoId(value: string): boolean {
   return /^01[0-9A-Z]{10,}$/.test(value);
 }
 
+async function loadRemoveCustomFields(
+  filePath: string,
+  labelToSourceId: Map<string, string>
+): Promise<{ removeIds: Set<string>; removeLabels: Set<string> }> {
+  const content = await readFile(filePath, 'utf-8');
+  const trimmed = content.trim();
+
+  const removeIds = new Set<string>();
+  const removeLabels = new Set<string>();
+
+  const addToken = (raw: string) => {
+    const t = raw.trim();
+    if (!t) return;
+    if (isLikelyIncidentIoId(t)) {
+      removeIds.add(t);
+      return;
+    }
+    const key = t.toLowerCase();
+    removeLabels.add(key);
+    const mappedId = labelToSourceId.get(key);
+    if (mappedId) removeIds.add(mappedId);
+  };
+
+  // Support JSON array of strings OR newline-separated text.
+  if (trimmed.startsWith('[')) {
+    const arr = JSON.parse(trimmed) as unknown;
+    if (!Array.isArray(arr)) {
+      throw new Error(
+        `--remove-custom-fields must be a JSON array of strings or a newline-separated file`
+      );
+    }
+    for (const item of arr) {
+      if (typeof item === 'string') addToken(item);
+    }
+    return { removeIds, removeLabels };
+  }
+
+  for (const line of content.split(/\r?\n/)) {
+    addToken(line);
+  }
+  return { removeIds, removeLabels };
+}
+
 type PatchStats = {
   replaced: number;
   skippedNoTarget: number; // present in CSV but target_id empty
   skippedNoMatch: number; // not present in CSV mapping table at all (or ambiguous)
   skippedAmbiguous: number; // present in CSV with conflicting target_id values
+  removed: number; // number of custom field entries removed (if configured)
 };
 
 function patchValue(
@@ -129,6 +187,8 @@ function patchValue(
   mapping: Map<string, string>,
   knownSourceIds: Set<string>,
   ambiguousSourceIds: Set<string>,
+  removeIds: Set<string> | undefined,
+  removeLabels: Set<string> | undefined,
   ctx: { inCustomFieldContext: boolean; keyHint?: string }
 ): { value: unknown; stats: PatchStats } {
   const stats: PatchStats = {
@@ -136,6 +196,7 @@ function patchValue(
     skippedNoTarget: 0,
     skippedNoMatch: 0,
     skippedAmbiguous: 0,
+    removed: 0,
   };
 
   const patchIdString = (id: string): string => {
@@ -169,11 +230,20 @@ function patchValue(
       if (typeof v === 'string' && ctx.inCustomFieldContext) {
         return patchIdString(v);
       }
-      const r = patchValue(v, mapping, knownSourceIds, ambiguousSourceIds, ctx);
+      const r = patchValue(
+        v,
+        mapping,
+        knownSourceIds,
+        ambiguousSourceIds,
+        removeIds,
+        removeLabels,
+        ctx
+      );
       stats.replaced += r.stats.replaced;
       stats.skippedNoTarget += r.stats.skippedNoTarget;
       stats.skippedNoMatch += r.stats.skippedNoMatch;
       stats.skippedAmbiguous += r.stats.skippedAmbiguous;
+      stats.removed += r.stats.removed;
       return r.value;
     });
     return { value: out, stats };
@@ -194,6 +264,71 @@ function patchValue(
         keyHint: k,
       };
 
+      // Removal: filter custom_field_entries/custom_field_values arrays by custom field id / name.
+      if (
+        (keyLower === 'custom_field_entries' || keyLower === 'custom_field_values') &&
+        Array.isArray(v)
+      ) {
+        if (!removeIds && !removeLabels) {
+          const r = patchValue(
+            v,
+            mapping,
+            knownSourceIds,
+            ambiguousSourceIds,
+            removeIds,
+            removeLabels,
+            nextCtx
+          );
+          stats.replaced += r.stats.replaced;
+          stats.skippedNoTarget += r.stats.skippedNoTarget;
+          stats.skippedNoMatch += r.stats.skippedNoMatch;
+          stats.skippedAmbiguous += r.stats.skippedAmbiguous;
+          stats.removed += r.stats.removed;
+          out[k] = r.value;
+          continue;
+        }
+
+        const filtered: unknown[] = [];
+        for (const item of v) {
+          if (item && typeof item === 'object') {
+            const entry = item as Record<string, unknown>;
+            const cfObj = entry['custom_field'] as { id?: unknown; name?: unknown } | undefined;
+            const cfId =
+              (typeof entry['custom_field_id'] === 'string'
+                ? entry['custom_field_id']
+                : undefined) ?? (typeof cfObj?.id === 'string' ? cfObj.id : undefined);
+            const cfName = typeof cfObj?.name === 'string' ? cfObj.name.toLowerCase() : undefined;
+
+            const shouldRemove =
+              (cfId && removeIds?.has(cfId)) || (cfName && removeLabels?.has(cfName));
+
+            if (shouldRemove) {
+              stats.removed++;
+              continue;
+            }
+          }
+          filtered.push(item);
+        }
+
+        // Now recurse for ID replacement within remaining items
+        const r = patchValue(
+          filtered,
+          mapping,
+          knownSourceIds,
+          ambiguousSourceIds,
+          removeIds,
+          removeLabels,
+          nextCtx
+        );
+        stats.replaced += r.stats.replaced;
+        stats.skippedNoTarget += r.stats.skippedNoTarget;
+        stats.skippedNoMatch += r.stats.skippedNoMatch;
+        stats.skippedAmbiguous += r.stats.skippedAmbiguous;
+        stats.removed += r.stats.removed;
+        out[k] = r.value;
+        continue;
+      }
+
       // Patch common patterns deterministically:
       // - custom_field_id: "<id>"
       // - (inside custom_field object) id: "<id>"
@@ -209,11 +344,20 @@ function patchValue(
         }
       }
 
-      const r = patchValue(v, mapping, knownSourceIds, ambiguousSourceIds, nextCtx);
+      const r = patchValue(
+        v,
+        mapping,
+        knownSourceIds,
+        ambiguousSourceIds,
+        removeIds,
+        removeLabels,
+        nextCtx
+      );
       stats.replaced += r.stats.replaced;
       stats.skippedNoTarget += r.stats.skippedNoTarget;
       stats.skippedNoMatch += r.stats.skippedNoMatch;
       stats.skippedAmbiguous += r.stats.skippedAmbiguous;
+      stats.removed += r.stats.removed;
       out[k] = r.value;
     }
 
@@ -236,7 +380,7 @@ export async function patchCustomFieldIds(options: PatchCustomFieldIdsOptions): 
   logger.info(`Mapping: ${mappingCsvFile}`);
   logger.info(`Output: ${options.inPlace ? incidentsFile : outputFile}`);
 
-  const { knownSourceIds, mapping, ambiguousSourceIds, rows, rowsWithTarget } =
+  const { knownSourceIds, mapping, ambiguousSourceIds, labelToSourceId, rows, rowsWithTarget } =
     await loadCustomFieldIdMapping(mappingCsvFile);
 
   if (ambiguousSourceIds.size > 0) {
@@ -247,6 +391,17 @@ export async function patchCustomFieldIds(options: PatchCustomFieldIdsOptions): 
 
   logger.info(`Loaded ${rows} mapping row(s) (${rowsWithTarget} with target_id)`);
 
+  let removeIds: Set<string> | undefined;
+  let removeLabels: Set<string> | undefined;
+  if (options.removeCustomFieldsFile) {
+    const loaded = await loadRemoveCustomFields(options.removeCustomFieldsFile, labelToSourceId);
+    removeIds = loaded.removeIds;
+    removeLabels = loaded.removeLabels;
+    logger.info(
+      `Remove list: ${options.removeCustomFieldsFile} (${removeIds.size} id(s), ${removeLabels.size} label(s))`
+    );
+  }
+
   const inputStream = createReadStream(incidentsFile, { encoding: 'utf-8' });
   const rl = createInterface({ input: inputStream, crlfDelay: Infinity });
   const outStream = createWriteStream(outputFile, { encoding: 'utf-8' });
@@ -256,6 +411,7 @@ export async function patchCustomFieldIds(options: PatchCustomFieldIdsOptions): 
   let skippedNoTarget = 0;
   let skippedNoMatch = 0;
   let skippedAmbiguous = 0;
+  let removedCustomFieldEntries = 0;
   let lineNumber = 0;
 
   try {
@@ -273,16 +429,23 @@ export async function patchCustomFieldIds(options: PatchCustomFieldIdsOptions): 
         throw new Error(`Failed to parse JSONL at line ${lineNumber}: ${(e as Error).message}`);
       }
 
-      const r = patchValue(parsed, mapping, knownSourceIds, ambiguousSourceIds, {
-        inCustomFieldContext: false,
-      });
+      const r = patchValue(
+        parsed,
+        mapping,
+        knownSourceIds,
+        ambiguousSourceIds,
+        removeIds,
+        removeLabels,
+        { inCustomFieldContext: false }
+      );
+      removedCustomFieldEntries += r.stats.removed;
       replaced += r.stats.replaced;
       skippedNoTarget += r.stats.skippedNoTarget;
       skippedNoMatch += r.stats.skippedNoMatch;
       skippedAmbiguous += r.stats.skippedAmbiguous;
 
-      // Preserve original line if no replacements were made for this record
-      if (r.stats.replaced === 0) {
+      // Preserve original line only if we didn't change anything (no id replacements and no removals)
+      if (r.stats.replaced === 0 && r.stats.removed === 0) {
         outStream.write(line + '\n');
       } else {
         outStream.write(JSON.stringify(r.value) + '\n');
@@ -309,4 +472,7 @@ export async function patchCustomFieldIds(options: PatchCustomFieldIdsOptions): 
   logger.info(`IDs skipped (ambiguous mapping): ${skippedAmbiguous}`);
   logger.info(`IDs skipped (no target_id): ${skippedNoTarget}`);
   logger.info(`IDs skipped (no match): ${skippedNoMatch}`);
+  if (options.removeCustomFieldsFile) {
+    logger.info(`Custom field entries removed: ${removedCustomFieldEntries}`);
+  }
 }

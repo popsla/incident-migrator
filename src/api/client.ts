@@ -8,6 +8,7 @@ import type {
   IncidentStatus,
   IncidentType,
   CustomField,
+  CatalogEntry,
   IncidentTimestamp,
   IncidentRole,
   User,
@@ -226,7 +227,7 @@ export class IncidentIoApiClient {
     page_size?: number;
     after?: string;
   }): Promise<{
-    catalog_entries: Array<{ id: string; name: string; external_id?: string; aliases?: string[] }>;
+    catalog_entries: CatalogEntry[];
     pagination_meta?: { after?: string; page_size?: number; total_record_count?: number };
   }> {
     const query: Record<string, string> = { catalog_type_id: params.catalog_type_id };
@@ -234,12 +235,7 @@ export class IncidentIoApiClient {
     if (params.after) query.after = params.after;
 
     return this.request<{
-      catalog_entries: Array<{
-        id: string;
-        name: string;
-        external_id?: string;
-        aliases?: string[];
-      }>;
+      catalog_entries: CatalogEntry[];
       pagination_meta?: { after?: string; page_size?: number; total_record_count?: number };
     }>('/v2/catalog_entries', { query });
   }

@@ -212,6 +212,10 @@ program
   )
   .requiredOption('--incidents <path>', 'Path to incidents.jsonl to patch')
   .requiredOption('--custom-fields <path>', 'Path to custom-fields.csv mapping file')
+  .option(
+    '--remove-custom-fields <path>',
+    'Optional file containing list of custom fields to remove from incident payload'
+  )
   .option('--out <path>', 'Output patched incidents JSONL (default: <incidents>.patched.jsonl)')
   .option('--in-place', 'Patch the incidents file in-place (atomic rewrite)')
   .option('--debug', 'Enable debug logging')
@@ -226,6 +230,7 @@ program
         mappingCsvFile: options.customFields,
         outputFile: options.out,
         inPlace: options.inPlace,
+        removeCustomFieldsFile: options.removeCustomFields,
       });
     } catch (error) {
       logger.error('patch failed:', error);

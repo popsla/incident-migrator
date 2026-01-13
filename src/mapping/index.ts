@@ -2,6 +2,11 @@ import { IncidentIoApiClient, paginateAll } from '../api/client.js';
 import { logger } from '../util/logging.js';
 import type { CatalogEntry, CustomField, MappingContext } from '../types.js';
 
+type CatalogEntriesPage = {
+  catalog_entries: CatalogEntry[];
+  pagination_meta?: { after?: string; page_size?: number; total_record_count?: number };
+};
+
 export async function buildMappingContext(client: IncidentIoApiClient): Promise<MappingContext> {
   logger.info('Building mapping context...');
 
@@ -49,11 +54,16 @@ export async function buildMappingContext(client: IncidentIoApiClient): Promise<
 
   for (const typeId of catalogTypeIds) {
     const entries: CatalogEntry[] = [];
-    for await (const entry of paginateAll(
-      (after) => client.listCatalogEntriesV2({ catalog_type_id: typeId, page_size: 100, after }),
+    for await (const entry of paginateAll<CatalogEntry, CatalogEntriesPage>(
+      (after) =>
+        client.listCatalogEntriesV2({
+          catalog_type_id: typeId,
+          page_size: 100,
+          after,
+        }) as Promise<CatalogEntriesPage>,
       (response) => response.catalog_entries || []
     )) {
-      entries.push(entry as CatalogEntry);
+      entries.push(entry);
     }
     totalCatalogEntries += entries.length;
 
@@ -79,7 +89,7 @@ export async function buildMappingContext(client: IncidentIoApiClient): Promise<
   logger.info(
     `Loaded: ${severities.length} severities, ${incident_statuses.length} statuses, ` +
       `${incident_types.length} types, ${custom_fields.length} custom fields, ` +
-      `${catalogTypeIds.length} catalog type(s), ${totalCatalogEntries} catalog entrie(s), ` +
+      `${catalogTypeIds.length} catalog type(s), ${totalCatalogEntries} catalog entries, ` +
       `${incident_timestamps.length} timestamps, ${incident_roles.length} roles, ` +
       `${users.length} users`
   );
