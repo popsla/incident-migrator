@@ -45,7 +45,7 @@ export class Importer {
       inputPath,
       dryRun = false,
       resume = false,
-      concurrency = 5,
+      concurrency = 2, // Reduced from 5 to 2 to avoid rate limiting
       strict = false,
       stateFile = 'state.json',
       reportFile = 'import-report.json',

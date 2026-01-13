@@ -339,6 +339,9 @@ export function mapCustomFieldValues(
           custom_field_id: targetField.id,
           values: sourceValue.values,
         });
+        if (targetField.field_type === 'link') {
+          warnings.push(`Mapped link field "${sourceField.name}" with ${sourceValue.values.length} value(s)`);
+        }
       }
     }
   }
@@ -374,10 +377,9 @@ function mapSelectFieldValue(
 
     if (targetOption) {
       // Build the value entry in the format the API expects
+      // Note: value_link should be a string (the catalog_entry_id), not an object
       mapped.push({
-        value_link: {
-          catalog_entry_id: targetOption.id
-        }
+        value_link: targetOption.id
       });
     } else {
       warnings.push(
