@@ -238,6 +238,8 @@ export interface ImportState {
 // Import result
 export interface ImportResult {
   sourceIncidentId: string;
+  sourceIncidentReference?: string;
+  sourceIncidentName?: string;
   targetIncidentId?: string;
   status: 'created' | 'skipped' | 'failed';
   warnings: string[];

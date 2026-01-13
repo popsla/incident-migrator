@@ -124,7 +124,8 @@ export class Importer {
             });
             results.push(result);
 
-            if (result.status === 'created' && result.targetIncidentId) {
+            // In dry-run mode, avoid mutating state with the placeholder 'dry-run-id'
+            if (!dryRun && result.status === 'created' && result.targetIncidentId) {
               state.mapping[bundle.incident.id] = result.targetIncidentId;
             }
 
@@ -288,6 +289,28 @@ export class Importer {
         kindTotals,
         warningsByKind,
         optionIssuesByField: optionIssuesByFieldSorted,
+        alreadyImported: {
+          total: results.filter(
+            (r) =>
+              r.status === 'skipped' &&
+              r.warnings.includes('Already imported') &&
+              !(dryRun && r.targetIncidentId === 'dry-run-id')
+          ).length,
+          samples: results
+            .filter(
+              (r) =>
+                r.status === 'skipped' &&
+                r.warnings.includes('Already imported') &&
+                !(dryRun && r.targetIncidentId === 'dry-run-id')
+            )
+            .slice(0, 50)
+            .map((r) => ({
+              sourceIncidentId: r.sourceIncidentId,
+              sourceIncidentReference: r.sourceIncidentReference,
+              sourceIncidentName: r.sourceIncidentName,
+              targetIncidentId: r.targetIncidentId,
+            })),
+        },
         samples: [...new Set(allWarnings)].slice(0, 20),
         allWarnings, // for reference, in case detailed review is desired
       };
@@ -310,15 +333,19 @@ export class Importer {
     const { incident } = bundle;
     const result: ImportResult = {
       sourceIncidentId: incident.id,
+      sourceIncidentReference: incident.reference,
+      sourceIncidentName: incident.name,
       status: 'failed',
       warnings: [],
     };
 
     try {
       // Check if already imported
-      if (state.mapping[incident.id]) {
+      const existingTargetId = state.mapping[incident.id];
+      // In dry-run mode, ignore placeholder mappings created by previous dry runs
+      if (existingTargetId && !(options.dryRun && existingTargetId === 'dry-run-id')) {
         result.status = 'skipped';
-        result.targetIncidentId = state.mapping[incident.id];
+        result.targetIncidentId = existingTargetId;
         result.warnings.push('Already imported');
         logger.debug(`Skipping ${incident.reference} (already imported)`);
         return result;
