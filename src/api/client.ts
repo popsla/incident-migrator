@@ -32,6 +32,8 @@ export class IncidentIoApiClient {
   private baseUrl: string;
   private maxRetries: number;
   private retryDelay: number;
+  private lastRequestTime: number = 0;
+  private minRequestInterval: number = 100; // Minimum 100ms between requests to avoid rate limits
 
   constructor(options: ApiClientOptions) {
     this.apiKey = options.apiKey;
@@ -60,6 +62,14 @@ export class IncidentIoApiClient {
 
     for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
       try {
+        // Enforce minimum request interval to avoid rate limits
+        const now = Date.now();
+        const timeSinceLastRequest = now - this.lastRequestTime;
+        if (timeSinceLastRequest < this.minRequestInterval) {
+          await this.sleep(this.minRequestInterval - timeSinceLastRequest);
+        }
+        this.lastRequestTime = Date.now();
+
         logger.debug(`${method} ${url} (attempt ${attempt + 1})`);
 
         const response = await fetch(url, {
