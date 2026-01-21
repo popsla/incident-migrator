@@ -2,41 +2,6 @@
 
 CLI tool for migrating incidents between incident.io environments using the retrospective incident API.
 
-## TL;DR for Slack
-
-```
-Incident Migrator - Quick Summary
-
-WHAT IT DOES:
-- Exports incidents from SOURCE environment
-- Imports them as retrospective incidents in TARGET environment
-- Automatically creates new or updates existing incidents (by reference/external_id)
-
-PREREQUISITES:
-1. API keys for both environments with these scopes:
-   - SOURCE: Read incidents
-   - TARGET: Create incidents, Edit incidents
-2. Contact incident.io to enable external_id feature flag (preserves INC-X numbers)
-3. Matching configuration in target: severities, incident types, custom fields (by name)
-4. Users invited to target environment (matched by email)
-
-BEHAVIOR:
-- New incidents: Created with matching INC-X number (Slack channel auto-created)
-- Existing incidents: Updated in place (no new channel)
-- Rate limited: 100ms between requests + auto-retry on 429
-- Idempotent: Safe to re-run, won't create duplicates
-
-USAGE:
-  # Export
-  SOURCE_API_KEY=inc_xxx node dist/cli.js export --out ./export
-
-  # Import (dry-run first!)
-  TARGET_API_KEY=inc_xxx node dist/cli.js import --in ./export --dry-run
-  TARGET_API_KEY=inc_xxx node dist/cli.js import --in ./export
-
-For MS Teams environments, add: --no-slack-channel
-```
-
 ## Features
 
 - Export incidents with follow-ups and incident updates
