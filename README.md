@@ -1,4 +1,4 @@
-# incident-io-retro-importer
+# incident.io Retrospective Importer
 
 A CLI tool for exporting incidents from one incident.io environment and importing them into another as **retrospective incidents**.
 
@@ -8,9 +8,9 @@ This is useful when you want historical incidents in a new environment (for repo
 
 ## Key behaviour
 
-- **Imports incidents as retrospective** (no Slack channels, no notifications)
-- **Safe to re-run** - already imported incidents are skipped
-- **Non-destructive** - existing incidents are never modified
+- **Imports incidents as retrospective** (no Slack channels for updates, no notifications)
+- **Safe to re-run** - uses automatic upsert (creates new or updates existing)
+- **Preserves incident numbers** via external_id (requires feature flag)
 - **Dry-run support** to preview changes before importing
 
 ---
@@ -20,7 +20,7 @@ This is useful when you want historical incidents in a new environment (for repo
 - Node.js 20+
 - API keys for both environments (source and target)
 
-Create API keys at:  
+Create API keys at:
 https://app.incident.io/settings/api-keys
 
 ### Required API scopes
@@ -39,7 +39,7 @@ Enable the following scopes:
 
 #### Target environment API key (import)
 
-The target key is used to **create retrospective incidents**.
+The target key is used to **create and edit retrospective incidents**.
 
 Enable the following scopes:
 
@@ -61,64 +61,130 @@ npm run build
 
 ## Usage
 
-### 1. Validate credentials
+### 1. Export incidents from the source environment
 
 ```bash
-node dist/cli.js validate
+node dist/cli.js export --out ./export
 ```
 
-### 2. Export incidents from the source environment
+### 2. Preview the import (recommended)
 
 ```bash
-node dist/cli.js export --out ./exports
-```
-
-### 3. Preview the import (recommended)
-
-```bash
-node dist/cli.js import --in ./exports --dry-run
+node dist/cli.js import --in ./export --dry-run
 ```
 
 This shows what would be imported without making any changes.
 
-### 4. Import incidents into the target environment
+### 3. Import incidents into the target environment
 
 ```bash
-node dist/cli.js import --in ./exports
+node dist/cli.js import --in ./export
 ```
 
-Incidents are created as **retrospective**, so:
+### Import Options
 
-- no Slack channels are created  
-- no notifications are sent  
+| Option | Description |
+|--------|-------------|
+| `--in <path>` | Input directory or JSONL file (required) |
+| `--dry-run` | Preview without making changes |
+| `--concurrency <n>` | Concurrent imports (default: 5) |
+| `--limit <n>` | Max incidents to import |
+| `--no-slack-channel` | For MS Teams environments |
+| `--no-external-id` | Skip external_id (if feature flag not enabled) |
+| `--strict` | Fail on mapping errors |
+| `--debug` | Enable debug logging |
 
-### 5. Resume if interrupted
+---
 
-If the import stops partway through, you can safely resume:
+## What Gets Imported
 
-```bash
-node dist/cli.js import --in ./exports --resume
-```
+| Data | Imported | Notes |
+|------|----------|-------|
+| Name, summary | Yes | |
+| Severity | Yes | Mapped by name, fallback by rank |
+| Incident type | Yes | Mapped by name |
+| Custom fields | Yes | Mapped by name |
+| Timestamps | Yes | Mapped by name |
+| Role assignments | Yes | Except reporter (cannot be changed) |
+| Postmortem URL | Yes | |
+| Jira tickets | Yes | Via incident attachments API |
+| External ID | Yes | Requires feature flag |
 
-Already-imported incidents will be skipped.
+---
 
-## What gets imported
+## Import Behavior
 
-- Incident name, summary, and visibility
-- Severity, status, and incident type
-- Custom field values and timestamps
-- Role assignments
-- Postmortem document URL
+The importer uses **automatic upsert**:
 
-Some data (such as Slack channels or external integrations) is included for reference only and not recreated.
+1. **Check state.json** - Maps source incident ID to target incident ID
+2. **Check by reference** - Looks for matching INC-X in target
+3. **Check by external_id** - If create fails due to existing external_id, finds and updates instead
+4. **Create if new** - Creates with same INC-X number
 
-## Help & options
+This ensures:
+- No duplicates are created
+- Incident numbers are preserved
+- Re-running is safe (idempotent)
 
-Run the CLI with `--help` to see all available options:
+---
 
-```bash
-node dist/cli.js --help
-```
+## Limitations
+
+### API Limitations
+
+| Limitation | Reason |
+|------------|--------|
+| Status locked to closed | Retrospective incidents cannot have active statuses |
+| Follow-ups not imported | No create endpoint exists |
+| Incident updates not imported | Read-only system records |
+| Reporter role locked | Cannot be re-assigned |
+| Related incidents not imported | No create endpoint exists |
+
+### Configuration Requirements
+
+For successful import, the target environment should have matching:
+
+- Severities (by name)
+- Incident types (by name)
+- Custom fields (by name, with matching options)
+- Users (by email) - invite before import
+
+---
+
+## Rate Limiting
+
+- Minimum 100ms between requests
+- Automatic retry with exponential backoff on 429
+- Respects retry-after header
+- Default concurrency of 5
+
+For large imports (2000+ incidents), use `--concurrency 1`.
+
+---
+
+## Slack Channels
+
+- **Slack environments**: New incidents get a channel auto-created
+- **MS Teams environments**: Use `--no-slack-channel`
+- **Updates**: Don't create new channels (uses existing)
+
+---
+
+## Troubleshooting
+
+### 422: external_id requires feature flag
+Contact incident.io to enable, or use `--no-external-id`.
+
+### 422: visibility mismatch
+The importer auto-adjusts visibility when incident type requires private.
+
+### Many mapping warnings
+Ensure target has matching configuration (severities, types, fields, users).
+
+### Rate limit errors
+Use `--concurrency 1` for large imports.
+
+---
 
 ## License
 

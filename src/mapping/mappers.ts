@@ -9,6 +9,7 @@ import type {
   IncidentRole,
   IncidentRoleAssignment,
   User,
+  CatalogEntry,
 } from '../types.js';
 
 export interface MappingResult<T> {
@@ -16,7 +17,7 @@ export interface MappingResult<T> {
   warnings: string[];
 }
 
-// Severity mapping: by name, fallback by rank
+// severity mapping: by name, fallback by rank
 export function mapSeverity(
   sourceSeverity: { id: string; name: string; rank: number } | undefined,
   targetSeverities: Map<string, Severity>
@@ -25,14 +26,14 @@ export function mapSeverity(
     return { warnings: [] };
   }
 
-  // Try exact name match first
+  // try exact name match first
   for (const [id, severity] of targetSeverities) {
     if (severity.name.toLowerCase() === sourceSeverity.name.toLowerCase()) {
       return { value: id, warnings: [] };
     }
   }
 
-  // Fallback: find by closest rank
+  // fallback: find by closest rank
   const sortedByRank = Array.from(targetSeverities.values()).sort((a, b) => a.rank - b.rank);
   const closest = sortedByRank.reduce((prev, curr) =>
     Math.abs(curr.rank - sourceSeverity.rank) < Math.abs(prev.rank - sourceSeverity.rank)
@@ -48,7 +49,7 @@ export function mapSeverity(
   };
 }
 
-// Status mapping: by name and category
+// status mapping: by name and category
 export function mapStatus(
   sourceStatus: { id: string; name: string; category: string } | undefined,
   targetStatuses: Map<string, IncidentStatus>
@@ -57,7 +58,7 @@ export function mapStatus(
     return { warnings: [] };
   }
 
-  // Try exact name match first
+  // try exact name match first
   for (const [id, status] of targetStatuses) {
     if (
       status.name.toLowerCase() === sourceStatus.name.toLowerCase() &&
@@ -67,7 +68,7 @@ export function mapStatus(
     }
   }
 
-  // Fallback: find by name only
+  // fallback: find by name only
   for (const [id, status] of targetStatuses) {
     if (status.name.toLowerCase() === sourceStatus.name.toLowerCase()) {
       return {
@@ -79,7 +80,7 @@ export function mapStatus(
     }
   }
 
-  // Fallback: find any status with same category
+  // fallback: find any status with same category
   for (const [id, status] of targetStatuses) {
     if (status.category === sourceStatus.category) {
       return {
@@ -96,7 +97,7 @@ export function mapStatus(
   };
 }
 
-// Incident type mapping: by name
+// incident type mapping: by name
 export function mapIncidentType(
   sourceType: { id: string; name: string } | undefined,
   targetTypes: Map<string, IncidentType>
@@ -116,35 +117,7 @@ export function mapIncidentType(
   };
 }
 
-// Timestamp mapping: by name
-export function mapTimestamps(
-  sourceTimestamps: IncidentTimestampValue[] | undefined,
-  _targetTimestamps: Map<string, IncidentTimestamp>
-): MappingResult<IncidentTimestampValue[]> {
-  if (!sourceTimestamps || sourceTimestamps.length === 0) {
-    return { value: [], warnings: [] };
-  }
-
-  const mapped: IncidentTimestampValue[] = [];
-  const warnings: string[] = [];
-
-  // Build reverse map of source timestamp IDs to their details
-  // We'll need to look up by name, so we assume the source context has this info
-  // For now, we'll use the timestamp value structure as-is
-
-  for (const sourceTs of sourceTimestamps) {
-    // We need the timestamp name from source - but we don't have it in the value
-    // This is a limitation: we need to pass source timestamp definitions
-    // For now, we'll just copy the value and warn that we can't map without names
-    warnings.push(
-      `Cannot map timestamp ID ${sourceTs.incident_timestamp_id} without name information`
-    );
-  }
-
-  return { value: mapped, warnings };
-}
-
-// Better timestamp mapping with source context or from export data
+// timestamp mapping with source context or from export data
 export function mapTimestampsWithContext(
   sourceTimestamps: IncidentTimestampValue[] | undefined,
   sourceTimestampDefs: Map<string, IncidentTimestamp>,
@@ -158,7 +131,7 @@ export function mapTimestampsWithContext(
   const warnings: string[] = [];
 
   for (const sourceTs of sourceTimestamps) {
-    // Try to get source definition from export data first, then fall back to source context
+    // try to get source definition from export data first, then fall back to source context
     const sourceDef = sourceTs.incident_timestamp || sourceTimestampDefs.get(sourceTs.incident_timestamp_id);
     if (!sourceDef) {
       warnings.push(`Source timestamp ${sourceTs.incident_timestamp_id} definition not found`);
@@ -185,7 +158,7 @@ export function mapTimestampsWithContext(
   return { value: mapped, warnings };
 }
 
-// User mapping: by email, fallback by slack_user_id
+// user mapping: by email, fallback by slack_user_id
 export function mapUser(
   sourceUser: { id: string; email?: string; slack_user_id?: string } | undefined,
   targetUsers: Map<string, User>
@@ -194,7 +167,7 @@ export function mapUser(
     return { warnings: [] };
   }
 
-  // Try email first
+  // try email first
   if (sourceUser.email) {
     for (const [id, user] of targetUsers) {
       if (user.email.toLowerCase() === sourceUser.email.toLowerCase()) {
@@ -203,7 +176,7 @@ export function mapUser(
     }
   }
 
-  // Fallback: slack_user_id
+  // fallback: slack_user_id
   if (sourceUser.slack_user_id) {
     for (const [id, user] of targetUsers) {
       if (user.slack_user_id === sourceUser.slack_user_id) {
@@ -222,7 +195,7 @@ export function mapUser(
   };
 }
 
-// Role assignment mapping
+// role assignment mapping
 export function mapRoleAssignments(
   sourceAssignments: IncidentRoleAssignment[] | undefined,
   sourceRoles: Map<string, IncidentRole>,
@@ -237,14 +210,14 @@ export function mapRoleAssignments(
   const warnings: string[] = [];
 
   for (const assignment of sourceAssignments) {
-    // Try to get source role from export data first, then fall back to source context
+    // try to get source role from export data first, then fall back to source context
     const sourceRole = assignment.role || sourceRoles.get(assignment.incident_role_id);
     if (!sourceRole) {
       warnings.push(`Source role ${assignment.incident_role_id} definition not found`);
       continue;
     }
 
-    // Find target role by name
+    // find target role by name
     let targetRoleId: string | undefined;
     for (const [id, role] of targetRoles) {
       if (role.name.toLowerCase() === sourceRole.name.toLowerCase()) {
@@ -258,7 +231,7 @@ export function mapRoleAssignments(
       continue;
     }
 
-    // Map assignee
+    // map assignee
     if (assignment.assignee) {
       const userResult = mapUser(assignment.assignee, targetUsers);
       if (userResult.value) {
@@ -270,7 +243,7 @@ export function mapRoleAssignments(
         warnings.push(...userResult.warnings);
       }
     } else {
-      // Role with no assignee
+      // role with no assignee
       mapped.push({
         incident_role_id: targetRoleId,
       });
@@ -280,11 +253,12 @@ export function mapRoleAssignments(
   return { value: mapped, warnings };
 }
 
-// Custom field mapping
+// custom field mapping
 export function mapCustomFieldValues(
   sourceValues: CustomFieldValue[] | undefined,
   sourceFields: Map<string, CustomField>,
-  targetFields: Map<string, CustomField>
+  targetFields: Map<string, CustomField>,
+  catalogEntries?: Map<string, CatalogEntry[]>
 ): MappingResult<CustomFieldValue[]> {
   if (!sourceValues || sourceValues.length === 0) {
     return { value: [], warnings: [] };
@@ -294,17 +268,17 @@ export function mapCustomFieldValues(
   const warnings: string[] = [];
 
   for (const sourceValue of sourceValues) {
-    // Try to get source field from export data first, then fall back to source context
+    // try to get source field from export data first, then fall back to source context
     const sourceField = sourceValue.custom_field || sourceFields.get(sourceValue.custom_field_id);
     if (!sourceField) {
       warnings.push(`Source custom field ${sourceValue.custom_field_id} definition not found`);
       continue;
     }
 
-    // Find target field by name
+    // find target field by name (trim whitespace for comparison)
     let targetField: CustomField | undefined;
     for (const field of targetFields.values()) {
-      if (field.name.toLowerCase() === sourceField.name.toLowerCase()) {
+      if (field.name.trim().toLowerCase() === sourceField.name.trim().toLowerCase()) {
         targetField = field;
         break;
       }
@@ -315,15 +289,21 @@ export function mapCustomFieldValues(
       continue;
     }
 
-    // Map the value based on field type
+    // map the value based on field type
     if (
       targetField.field_type === 'single_select' ||
       targetField.field_type === 'multi_select'
     ) {
+      // get target catalog entries if this is a catalog-backed field
+      const targetCatalogEntries = targetField.catalog_type_id && catalogEntries
+        ? catalogEntries.get(targetField.catalog_type_id)
+        : undefined;
+
       const mappedValue = mapSelectFieldValue(
         sourceValue.values,
         sourceField,
-        targetField
+        targetField,
+        targetCatalogEntries
       );
       if (mappedValue.value !== undefined && mappedValue.value.length > 0) {
         mapped.push({
@@ -339,9 +319,6 @@ export function mapCustomFieldValues(
           custom_field_id: targetField.id,
           values: sourceValue.values,
         });
-        if (targetField.field_type === 'link') {
-          warnings.push(`Mapped link field "${sourceField.name}" with ${sourceValue.values.length} value(s)`);
-        }
       }
     }
   }
@@ -352,38 +329,58 @@ export function mapCustomFieldValues(
 function mapSelectFieldValue(
   sourceValues: any[] | undefined,
   sourceField: CustomField,
-  targetField: CustomField
+  targetField: CustomField,
+  targetCatalogEntries?: CatalogEntry[]
 ): MappingResult<any[]> {
   if (!sourceValues || sourceValues.length === 0) {
     return { value: [], warnings: [] };
   }
 
-  const targetOptions = targetField.options || [];
   const mapped: any[] = [];
   const warnings: string[] = [];
 
   for (const valueEntry of sourceValues) {
-    // Extract the name from value_catalog_entry
-    const sourceName = valueEntry.value_catalog_entry?.name;
+    // extract name from value_catalog_entry (catalog-backed) or value_option (standard options)
+    const sourceName = valueEntry.value_catalog_entry?.name || valueEntry.value_option?.value;
     if (!sourceName) {
       warnings.push(`Value entry missing name in field "${sourceField.name}"`);
       continue;
     }
 
-    // Find matching target option by name
-    const targetOption = targetOptions.find(
-      (o) => o.value.toLowerCase() === sourceName.toLowerCase()
-    );
+    // check if target is catalog-backed or options-backed
+    if (targetCatalogEntries && targetCatalogEntries.length > 0) {
+      // catalog-backed field - find matching catalog entry by name
+      const targetEntry = targetCatalogEntries.find(
+        (e) => e.name.toLowerCase() === sourceName.toLowerCase()
+      );
 
-    if (targetOption) {
-      // Build the value entry in the format the API expects
-      // Note: value_link should be a string (the catalog_entry_id), not an object
-      mapped.push({
-        value_link: targetOption.id
-      });
+      if (targetEntry) {
+        mapped.push({
+          value_catalog_entry_id: targetEntry.id
+        });
+      } else {
+        warnings.push(
+          `Catalog entry "${sourceName}" in field "${sourceField.name}" not found in target`
+        );
+      }
+    } else if (targetField.options && targetField.options.length > 0) {
+      // options-backed field - find matching option by name
+      const targetOption = targetField.options.find(
+        (o) => o.value.toLowerCase() === sourceName.toLowerCase()
+      );
+
+      if (targetOption) {
+        mapped.push({
+          value_link: targetOption.id
+        });
+      } else {
+        warnings.push(
+          `Option "${sourceName}" in field "${sourceField.name}" not found in target`
+        );
+      }
     } else {
       warnings.push(
-        `Option "${sourceName}" in field "${sourceField.name}" not found in target`
+        `Field "${sourceField.name}" has no options or catalog entries in target`
       );
     }
   }

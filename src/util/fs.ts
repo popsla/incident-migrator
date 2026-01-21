@@ -36,6 +36,11 @@ export async function readJson<T>(path: string): Promise<T> {
   return JSON.parse(content) as T;
 }
 
+export async function clearFile(path: string): Promise<void> {
+  await ensureDir(dirname(path));
+  await writeFile(path, '', 'utf-8');
+}
+
 export async function appendJsonl(path: string, data: unknown): Promise<void> {
   await ensureDir(dirname(path));
   const line = JSON.stringify(data) + '\n';

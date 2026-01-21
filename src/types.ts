@@ -1,6 +1,6 @@
-// API Types for incident.io V2
+// api types for incident.io v2
 
-// Response format (from GET /incidents)
+// response format (from GET /incidents)
 export interface IncidentTimestampValueResponse {
   incident_timestamp: {
     id: string;
@@ -12,22 +12,22 @@ export interface IncidentTimestampValueResponse {
   };
 }
 
-// Request format (for POST /incidents)
+// request format (for POST /incidents)
 export interface IncidentTimestampValue {
   incident_timestamp_id: string;
-  incident_timestamp?: IncidentTimestamp; // Full object preserved from export for mapping
+  incident_timestamp?: IncidentTimestamp;
   value: string; // ISO 8601
 }
 
 export interface CustomFieldValue {
   custom_field_id: string;
-  custom_field?: CustomField; // Full object preserved from export for mapping
-  values?: any[]; // Array format that the API expects
+  custom_field?: CustomField;
+  values?: any[];
 }
 
 export interface IncidentRoleAssignment {
   incident_role_id: string;
-  role?: IncidentRole; // Full object preserved from export for mapping
+  role?: IncidentRole;
   assignee?: {
     id: string;
     email?: string;
@@ -42,12 +42,19 @@ export interface RetrospectiveIncidentOptions {
   slack_team_id?: string;
 }
 
+export interface ExternalIssueReference {
+  provider: string;
+  issue_name: string;
+  issue_permalink: string;
+}
+
 export interface Incident {
   id: string;
   reference: string;
   name: string;
   summary?: string;
   visibility: 'public' | 'private';
+  external_issue_reference?: ExternalIssueReference;
   severity?: {
     id: string;
     name: string;
@@ -127,6 +134,7 @@ export interface IncidentType {
   id: string;
   name: string;
   description?: string;
+  private_incidents_only?: boolean;
 }
 
 export interface CustomField {
@@ -164,14 +172,31 @@ export interface User {
   slack_user_id?: string;
 }
 
-// Export bundle schema
+export interface CatalogEntry {
+  id: string;
+  name: string;
+  catalog_type_id: string;
+  external_id?: string;
+}
+
+export interface IncidentRelationship {
+  id: string;
+  incident: {
+    id: string;
+    external_id?: number;
+    name: string;
+  };
+}
+
+// export bundle schema
 export interface IncidentBundle {
   incident: Incident;
   follow_ups?: FollowUp[];
   incident_updates?: IncidentUpdate[];
+  related_incidents?: IncidentRelationship[];
 }
 
-// API Response wrappers
+// api response wrappers
 export interface PaginatedResponse<T> {
   pagination_meta?: {
     after?: string;
@@ -181,23 +206,37 @@ export interface PaginatedResponse<T> {
   [key: string]: T[] | unknown;
 }
 
-// Create incident request
+// create incident request
 export interface CreateIncidentRequest {
   mode: 'retrospective';
   name: string;
   summary?: string;
   visibility: 'public' | 'private';
   severity_id?: string;
-  incident_status_id?: string;  // Note: API uses incident_status_id not status_id
+  incident_status_id?: string;
   incident_type_id?: string;
-  custom_field_entries?: CustomFieldValue[];  // Note: API uses custom_field_entries not custom_field_values
+  custom_field_entries?: CustomFieldValue[];
   incident_timestamp_values?: IncidentTimestampValue[];
   incident_role_assignments?: IncidentRoleAssignment[];
   retrospective_incident_options?: RetrospectiveIncidentOptions;
   idempotency_key?: string;
 }
 
-// Configuration
+// update incident request
+export interface UpdateIncidentRequest {
+  incident: {
+    name?: string;
+    summary?: string;
+    severity_id?: string;
+    incident_status_id?: string;
+    custom_field_entries?: CustomFieldValue[];
+    incident_timestamp_values?: IncidentTimestampValue[];
+    incident_role_assignments?: IncidentRoleAssignment[];
+  };
+  notify_incident_channel: boolean;
+}
+
+// configuration
 export interface Config {
   sourceApiKey: string;
   targetApiKey: string;
@@ -205,7 +244,7 @@ export interface Config {
   targetBaseUrl: string;
 }
 
-// Export manifest
+// export manifest
 export interface ExportManifest {
   exportedAt: string;
   filters: {
@@ -218,26 +257,27 @@ export interface ExportManifest {
     incidents: number;
     followUps: number;
     incidentUpdates: number;
+    relatedIncidents?: number;
   };
   sourceBaseUrl: string;
 }
 
-// Import state
+// import state
 export interface ImportState {
   mapping: Record<string, string>; // source_incident_id -> target_incident_id
   lastImportedAt: string;
 }
 
-// Import result
+// import result
 export interface ImportResult {
   sourceIncidentId: string;
   targetIncidentId?: string;
-  status: 'created' | 'skipped' | 'failed';
+  status: 'created' | 'updated' | 'skipped' | 'failed';
   warnings: string[];
   error?: string;
 }
 
-// Import report
+// import report
 export interface ImportReport {
   importedAt: string;
   summary: {
@@ -249,7 +289,7 @@ export interface ImportReport {
   results: ImportResult[];
 }
 
-// Mapping context
+// mapping context
 export interface MappingContext {
   severities: Map<string, Severity>;
   statuses: Map<string, IncidentStatus>;
@@ -258,4 +298,5 @@ export interface MappingContext {
   timestamps: Map<string, IncidentTimestamp>;
   roles: Map<string, IncidentRole>;
   users: Map<string, User>;
+  catalogEntries: Map<string, CatalogEntry[]>; // keyed by catalog_type_id
 }
