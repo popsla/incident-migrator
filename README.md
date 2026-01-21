@@ -1,60 +1,83 @@
 # incident.io Retrospective Importer
 
-CLI tool for migrating incidents between incident.io environments using the retrospective incident API.
+A CLI tool for exporting incidents from one incident.io environment and importing them into another as **retrospective incidents**.
 
-## Features
+This is useful when you want historical incidents in a new environment (for reporting, audits, demos, or migrations) without triggering Slack notifications or live workflows.
 
-- Export incidents with follow-ups and incident updates
-- Import as retrospective incidents
-- Automatic upsert: creates new or updates existing
-- Preserves incident numbers via external_id (requires feature flag)
-- Maps entities by name between environments
-- Rate limiting with automatic retry and backoff
-- Concurrent imports with configurable concurrency
-- Dry-run mode for safe preview
+---
 
-## Prerequisites
+## Key behaviour
+
+- **Imports incidents as retrospective** (no Slack channels for updates, no notifications)
+- **Safe to re-run** - uses automatic upsert (creates new or updates existing)
+- **Preserves incident numbers** via external_id (requires feature flag)
+- **Dry-run support** to preview changes before importing
+
+---
+
+## Requirements
 
 - Node.js 20+
-- API keys for source and target incident.io environments
-- For external_id preservation: contact incident.io to enable the feature flag
-- For Jira attachment: Jira integration must be installed in target
+- API keys for both environments (source and target)
 
-## Installation
+Create API keys at:
+https://app.incident.io/settings/api-keys
+
+### Required API scopes
+
+The tool uses **two API keys**: one for exporting from the source environment, and one for importing into the target environment.
+
+#### Source environment API key (export)
+
+The source key is **read-only**.
+
+Enable the following scopes:
+
+- **View data, like public incidents and organisation settings**
+- **View all incident data, including private incidents**
+- **View catalog types and entries**
+
+#### Target environment API key (import)
+
+The target key is used to **create and edit retrospective incidents**.
+
+Enable the following scopes:
+
+- **View data, like public incidents and organisation settings**
+- **View all incident data, including private incidents**
+- **Create incidents**
+- **Edit incidents**
+
+---
+
+## Setup
+
+Install dependencies and build:
 
 ```bash
 npm install
 npm run build
 ```
 
-## Configuration
-
-```bash
-export SOURCE_API_KEY="inc_xxx"  # required for export
-export TARGET_API_KEY="inc_xxx"  # required for import
-```
-
 ## Usage
 
-### Export
+### 1. Export incidents from the source environment
 
 ```bash
 node dist/cli.js export --out ./export
-
-# with filters
-node dist/cli.js export --out ./export \
-  --created-after 2024-01-01T00:00:00Z \
-  --status-category closed \
-  --limit 100
 ```
 
-### Import
+### 2. Preview the import (recommended)
 
 ```bash
-# dry-run first (always recommended)
 node dist/cli.js import --in ./export --dry-run
+```
 
-# actual import
+This shows what would be imported without making any changes.
+
+### 3. Import incidents into the target environment
+
+```bash
 node dist/cli.js import --in ./export
 ```
 
@@ -71,6 +94,8 @@ node dist/cli.js import --in ./export
 | `--strict` | Fail on mapping errors |
 | `--debug` | Enable debug logging |
 
+---
+
 ## What Gets Imported
 
 | Data | Imported | Notes |
@@ -84,7 +109,8 @@ node dist/cli.js import --in ./export
 | Postmortem URL | Yes | |
 | Jira tickets | Yes | Via incident attachments API |
 | External ID | Yes | Requires feature flag |
-| Related incidents | Export only | No create API exists |
+
+---
 
 ## Import Behavior
 
@@ -93,16 +119,18 @@ The importer uses **automatic upsert**:
 1. **Check state.json** - Maps source incident ID to target incident ID
 2. **Check by reference** - Looks for matching INC-X in target
 3. **Check by external_id** - If create fails due to existing external_id, finds and updates instead
-4. **Create if new** - Creates with same INC-X number, Slack creates a channel
+4. **Create if new** - Creates with same INC-X number
 
 This ensures:
 - No duplicates are created
 - Incident numbers are preserved
 - Re-running is safe (idempotent)
 
+---
+
 ## Limitations
 
-### API Limitations (cannot be fixed)
+### API Limitations
 
 | Limitation | Reason |
 |------------|--------|
@@ -121,6 +149,8 @@ For successful import, the target environment should have matching:
 - Custom fields (by name, with matching options)
 - Users (by email) - invite before import
 
+---
+
 ## Rate Limiting
 
 - Minimum 100ms between requests
@@ -130,11 +160,15 @@ For successful import, the target environment should have matching:
 
 For large imports (2000+ incidents), use `--concurrency 1`.
 
+---
+
 ## Slack Channels
 
 - **Slack environments**: New incidents get a channel auto-created
 - **MS Teams environments**: Use `--no-slack-channel`
 - **Updates**: Don't create new channels (uses existing)
+
+---
 
 ## Troubleshooting
 
@@ -149,6 +183,8 @@ Ensure target has matching configuration (severities, types, fields, users).
 
 ### Rate limit errors
 Use `--concurrency 1` for large imports.
+
+---
 
 ## License
 
