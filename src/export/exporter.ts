@@ -1,7 +1,7 @@
 import { join } from 'path';
 import { IncidentIoApiClient, paginateAll } from '../api/client.js';
 import { logger } from '../util/logging.js';
-import { appendJsonl, writeManifest } from '../util/fs.js';
+import { appendJsonl, clearFile, writeManifest } from '../util/fs.js';
 import type { IncidentBundle, ExportManifest } from '../types.js';
 
 export interface ExportOptions {
@@ -27,18 +27,21 @@ export class Exporter {
     logger.info('Starting export...');
     logger.info(`Output: ${outputFile}`);
 
+    // Clear existing file to prevent duplicates on re-export
+    await clearFile(outputFile);
+
     let count = 0;
     let followUpCount = 0;
     let updateCount = 0;
+    let relatedCount = 0;
 
-    // Build query params
+    // build query params
     const queryParams: Record<string, string> = {};
     if (statusCategory) {
       queryParams['status_category[]'] = statusCategory;
     }
 
-    // Note: created_after/created_before filtering would need to be done client-side
-    // if the API doesn't support these params directly on the list endpoint
+    // created_after/created_before filtering is done client-side
 
     for await (const incident of paginateAll(
       (after) =>
@@ -49,7 +52,7 @@ export class Exporter {
         }),
       (response) => response.incidents || []
     )) {
-      // Apply client-side filters
+      // apply client-side filters
       if (createdAfter && incident.created_at < createdAfter) {
         continue;
       }
@@ -57,14 +60,14 @@ export class Exporter {
         continue;
       }
 
-      // Fetch additional details
+      // fetch additional details
       logger.debug(`Exporting incident ${incident.reference} (${incident.name})`);
 
       const bundle: IncidentBundle = {
         incident,
       };
 
-      // Fetch follow-ups
+      // fetch follow-ups
       try {
         const { follow_ups } = await this.client.listFollowUps(incident.id);
         if (follow_ups && follow_ups.length > 0) {
@@ -77,7 +80,7 @@ export class Exporter {
         );
       }
 
-      // Fetch incident updates
+      // fetch incident updates
       try {
         const { incident_updates } = await this.client.listIncidentUpdates(incident.id);
         if (incident_updates && incident_updates.length > 0) {
@@ -90,7 +93,20 @@ export class Exporter {
         );
       }
 
-      // Write to JSONL
+      // fetch related incidents
+      try {
+        const { incident_relationships } = await this.client.listRelatedIncidents(incident.id);
+        if (incident_relationships && incident_relationships.length > 0) {
+          bundle.related_incidents = incident_relationships;
+          relatedCount += incident_relationships.length;
+        }
+      } catch (error) {
+        logger.warn(
+          `Failed to fetch related incidents for incident ${incident.reference}: ${(error as Error).message}`
+        );
+      }
+
+      // write to jsonl
       await appendJsonl(outputFile, bundle);
 
       count++;
@@ -104,7 +120,7 @@ export class Exporter {
       }
     }
 
-    // Write manifest
+    // write manifest
     const manifest: ExportManifest = {
       exportedAt: new Date().toISOString(),
       filters: {
@@ -117,6 +133,7 @@ export class Exporter {
         incidents: count,
         followUps: followUpCount,
         incidentUpdates: updateCount,
+        relatedIncidents: relatedCount,
       },
       sourceBaseUrl: this.client['baseUrl'],
     };
@@ -127,6 +144,7 @@ export class Exporter {
     logger.info(`Exported ${count} incidents`);
     logger.info(`  - ${followUpCount} follow-ups`);
     logger.info(`  - ${updateCount} incident updates`);
+    logger.info(`  - ${relatedCount} related incidents`);
     logger.info(`Manifest: ${manifestFile}`);
   }
 }
