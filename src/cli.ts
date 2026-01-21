@@ -15,7 +15,7 @@ program
   .description('Export and import incidents between incident.io environments')
   .version('1.0.0');
 
-// Helper to get config from environment
+// helper to get config from environment
 function getConfig(isSource: boolean): Config {
   const apiKey = isSource
     ? process.env.SOURCE_API_KEY
@@ -36,7 +36,7 @@ function getConfig(isSource: boolean): Config {
   };
 }
 
-// Export command
+// export command
 program
   .command('export')
   .description('Export incidents from SOURCE environment')
@@ -75,13 +75,12 @@ program
     }
   });
 
-// Import command
+// import command
 program
   .command('import')
   .description('Import incidents into TARGET environment as retrospective incidents')
   .requiredOption('--in <path>', 'Input directory or file (JSONL) with exported incidents')
   .option('--dry-run', 'Preview import without making changes')
-  .option('--resume', 'Resume from previous import using state.json')
   .option('--concurrency <n>', 'Number of concurrent imports', parseInt, 5)
   .option('--strict', 'Fail if required mappings are missing')
   .option('--state-file <path>', 'Path to state file', 'state.json')
@@ -91,6 +90,13 @@ program
     '--with-source-context',
     'Build source environment context for better mapping (requires SOURCE_API_KEY)'
   )
+  .option(
+    '--slack-channel-id <id>',
+    'Slack channel ID to attach incidents to (default: fake ID to prevent channel creation)'
+  )
+  .option('--no-slack-channel', 'Skip setting slack_channel_id (for MS Teams environments)')
+  .option('--no-external-id', 'Skip setting external_id (if feature flag not enabled)')
+  .option('--limit <n>', 'Maximum number of incidents to import', parseInt)
   .action(async (options) => {
     try {
       if (options.debug) {
@@ -103,7 +109,7 @@ program
         baseUrl: config.targetBaseUrl,
       });
 
-      // Optionally build source context for better mapping
+      // optionally build source context for better mapping
       let sourceContext;
       if (options.withSourceContext) {
         logger.info('Building source environment context...');
@@ -120,11 +126,14 @@ program
         {
           inputPath: options.in,
           dryRun: options.dryRun,
-          resume: options.resume,
           concurrency: options.concurrency,
           strict: options.strict,
           stateFile: options.stateFile,
           reportFile: options.reportFile,
+          slackChannelId: options.slackChannelId,
+          skipSlackChannel: options.slackChannel === false,
+          skipExternalId: options.externalId === false,
+          limit: options.limit,
         },
         sourceContext
       );
@@ -134,7 +143,7 @@ program
     }
   });
 
-// Validate command
+// validate command
 program
   .command('validate')
   .description('Validate connection and credentials for SOURCE and TARGET environments')
