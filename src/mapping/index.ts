@@ -1,13 +1,13 @@
 import { IncidentIoApiClient, paginateAll } from '../api/client.js';
 import { logger } from '../util/logging.js';
-import type { MappingContext } from '../types.js';
+import type { MappingContext, CatalogEntry } from '../types.js';
 
 export async function buildMappingContext(
   client: IncidentIoApiClient
 ): Promise<MappingContext> {
   logger.info('Building mapping context...');
 
-  // Fetch all configuration data
+  // fetch all configuration data
   const [
     { severities },
     { incident_statuses },
@@ -24,7 +24,7 @@ export async function buildMappingContext(
     client.listIncidentRoles(),
   ]);
 
-  // Fetch all users with pagination
+  // fetch all users with pagination
   const users = [];
   for await (const user of paginateAll(
     (after) => client.listUsers({ page_size: 100, after }),
@@ -33,11 +33,31 @@ export async function buildMappingContext(
     users.push(user);
   }
 
+  // fetch catalog entries for catalog-backed custom fields
+  const catalogEntries = new Map<string, CatalogEntry[]>();
+  const catalogTypeIds = new Set<string>();
+  for (const field of custom_fields) {
+    if (field.catalog_type_id) {
+      catalogTypeIds.add(field.catalog_type_id);
+    }
+  }
+
+  for (const catalogTypeId of catalogTypeIds) {
+    const entries: CatalogEntry[] = [];
+    for await (const entry of paginateAll(
+      (after) => client.listCatalogEntries(catalogTypeId, { page_size: 100, after }),
+      (response) => response.catalog_entries || []
+    )) {
+      entries.push(entry);
+    }
+    catalogEntries.set(catalogTypeId, entries);
+  }
+
   logger.info(
     `Loaded: ${severities.length} severities, ${incident_statuses.length} statuses, ` +
       `${incident_types.length} types, ${custom_fields.length} custom fields, ` +
       `${incident_timestamps.length} timestamps, ${incident_roles.length} roles, ` +
-      `${users.length} users`
+      `${users.length} users, ${catalogTypeIds.size} catalog types`
   );
 
   return {
@@ -48,6 +68,7 @@ export async function buildMappingContext(
     timestamps: new Map(incident_timestamps.map((t) => [t.id, t])),
     roles: new Map(incident_roles.map((r) => [r.id, r])),
     users: new Map(users.map((u) => [u.id, u])),
+    catalogEntries,
   };
 }
 
