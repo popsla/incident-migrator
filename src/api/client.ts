@@ -12,6 +12,9 @@ import type {
   IncidentRole,
   User,
   CreateIncidentRequest,
+  UpdateIncidentRequest,
+  CatalogEntry,
+  IncidentRelationship,
 } from '../types.js';
 
 interface ApiClientOptions {
@@ -33,7 +36,7 @@ export class IncidentIoApiClient {
   private maxRetries: number;
   private retryDelay: number;
   private lastRequestTime: number = 0;
-  private minRequestInterval: number = 100; // Minimum 100ms between requests to avoid rate limits
+  private minRequestInterval: number = 100;
 
   constructor(options: ApiClientOptions) {
     this.apiKey = options.apiKey;
@@ -62,7 +65,7 @@ export class IncidentIoApiClient {
 
     for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
       try {
-        // Enforce minimum request interval to avoid rate limits
+        // enforce minimum request interval
         const now = Date.now();
         const timeSinceLastRequest = now - this.lastRequestTime;
         if (timeSinceLastRequest < this.minRequestInterval) {
@@ -87,7 +90,7 @@ export class IncidentIoApiClient {
           return data as T;
         }
 
-        // Handle rate limiting
+        // handle rate limiting
         if (response.status === 429) {
           const retryAfter = response.headers.get('retry-after');
           const waitMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : this.retryDelay * Math.pow(2, attempt);
@@ -96,7 +99,7 @@ export class IncidentIoApiClient {
           continue;
         }
 
-        // Handle server errors with retry
+        // handle server errors with retry
         if (response.status >= 500) {
           const waitMs = this.retryDelay * Math.pow(2, attempt);
           logger.warn(`Server error (${response.status}). Retrying after ${waitMs}ms...`);
@@ -104,7 +107,7 @@ export class IncidentIoApiClient {
           continue;
         }
 
-        // Handle client errors (no retry)
+        // handle client errors (no retry)
         const errorBody = await response.text();
         let errorMessage: string;
         try {
@@ -117,7 +120,7 @@ export class IncidentIoApiClient {
       } catch (error) {
         lastError = error as Error;
         if (error instanceof Error && !error.message.includes('API error')) {
-          // Network error or other fetch error - retry
+          // network error or other fetch error - retry
           const waitMs = this.retryDelay * Math.pow(2, attempt);
           logger.warn(`Request failed: ${error.message}. Retrying after ${waitMs}ms...`);
           await this.sleep(waitMs);
@@ -130,18 +133,38 @@ export class IncidentIoApiClient {
     throw lastError || new Error('Max retries exceeded');
   }
 
-  // Incidents
+  // incidents
   async listIncidents(params: {
     page_size?: number;
     after?: string;
     status_category?: string;
+    reference?: string;
   } = {}): Promise<{ incidents: Incident[]; pagination_meta?: { after?: string; page_size?: number; total_record_count?: number } }> {
     const query: Record<string, string> = {};
     if (params.page_size) query.page_size = params.page_size.toString();
     if (params.after) query.after = params.after;
     if (params.status_category) query['status_category[]'] = params.status_category;
+    if (params.reference) query.reference = params.reference;
 
     return this.request<{ incidents: Incident[]; pagination_meta?: { after?: string; page_size?: number; total_record_count?: number } }>('/v2/incidents', { query });
+  }
+
+  // find incident by reference
+  async findIncidentByReference(reference: string): Promise<Incident | null> {
+    const { incidents } = await this.listIncidents({ reference, page_size: 1 });
+    return incidents.length > 0 ? incidents[0] : null;
+  }
+
+  // build a map of all incidents by reference for efficient lookup
+  async buildIncidentReferenceMap(): Promise<Map<string, Incident>> {
+    const map = new Map<string, Incident>();
+    for await (const incident of paginateAll(
+      (after) => this.listIncidents({ page_size: 100, after }),
+      (response) => response.incidents || []
+    )) {
+      map.set(incident.reference, incident);
+    }
+    return map;
   }
 
   async getIncident(id: string): Promise<{ incident: Incident }> {
@@ -155,21 +178,39 @@ export class IncidentIoApiClient {
     });
   }
 
-  // Follow-ups
+  async updateIncident(id: string, data: UpdateIncidentRequest): Promise<{ incident: Incident }> {
+    return this.request<{ incident: Incident }>(`/v2/incidents/${id}/actions/edit`, {
+      method: 'POST',
+      body: data,
+    });
+  }
+
+  // incident attachments
+  async createIncidentAttachment(incidentId: string, resource: { external_id: string; resource_type: string }): Promise<{ incident_attachment: any }> {
+    return this.request<{ incident_attachment: any }>('/v1/incident_attachments', {
+      method: 'POST',
+      body: {
+        incident_id: incidentId,
+        resource,
+      },
+    });
+  }
+
+  // follow-ups
   async listFollowUps(incidentId: string): Promise<{ follow_ups: FollowUp[] }> {
     return this.request<{ follow_ups: FollowUp[] }>('/v2/follow_ups', {
       query: { incident_id: incidentId },
     });
   }
 
-  // Incident Updates
+  // incident updates
   async listIncidentUpdates(incidentId: string): Promise<{ incident_updates: IncidentUpdate[] }> {
     return this.request<{ incident_updates: IncidentUpdate[] }>('/v2/incident_updates', {
       query: { incident_id: incidentId },
     });
   }
 
-  // Configuration endpoints
+  // configuration endpoints
   async listSeverities(): Promise<{ severities: Severity[] }> {
     return this.request<{ severities: Severity[] }>('/v1/severities');
   }
@@ -201,9 +242,27 @@ export class IncidentIoApiClient {
 
     return this.request<{ users: User[]; pagination_meta?: { after?: string; page_size?: number; total_record_count?: number } }>('/v2/users', { query });
   }
+
+  // catalog entries for catalog-backed custom fields
+  async listCatalogEntries(catalogTypeId: string, params: { page_size?: number; after?: string } = {}): Promise<{ catalog_entries: CatalogEntry[]; pagination_meta?: { after?: string } }> {
+    const query: Record<string, string> = { catalog_type_id: catalogTypeId };
+    if (params.page_size) query.page_size = params.page_size.toString();
+    if (params.after) query.after = params.after;
+
+    return this.request<{ catalog_entries: CatalogEntry[]; pagination_meta?: { after?: string } }>('/v2/catalog_entries', { query });
+  }
+
+  // related incidents (v1 endpoint - read-only, no create API exists)
+  async listRelatedIncidents(incidentId: string, params: { page_size?: number; after?: string } = {}): Promise<{ incident_relationships: IncidentRelationship[]; pagination_meta?: { after?: string } }> {
+    const query: Record<string, string> = { incident_id: incidentId };
+    if (params.page_size) query.page_size = params.page_size.toString();
+    if (params.after) query.after = params.after;
+
+    return this.request<{ incident_relationships: IncidentRelationship[]; pagination_meta?: { after?: string } }>('/v1/incident_relationships', { query });
+  }
 }
 
-// Pagination helper
+// pagination helper
 export async function* paginateAll<T, R extends { pagination_meta?: { after?: string } }>(
   fetchPage: (after?: string) => Promise<R>,
   getItems: (response: R) => T[]
